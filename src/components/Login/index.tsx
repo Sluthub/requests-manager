@@ -140,7 +140,7 @@ const Login = () => {
                           mediaServerName:
                             publicRuntimeConfig.JELLYFIN_TYPE == 'emby'
                               ? 'Emby'
-                              : 'Jellyfin',
+                              : 'Sluthub',
                         })}
                   </button>
                   <AccordionContent isOpen={openIndexes.includes(0)}>
