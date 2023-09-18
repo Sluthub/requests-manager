@@ -88,7 +88,7 @@ const StatusBadge = ({
           ? 'Emby'
           : settings.currentSettings.mediaServerType === MediaServerType.PLEX
           ? 'Plex'
-          : 'Jellyfin',
+          : 'Sluthub',
     });
   } else if (hasPermission(Permission.MANAGE_REQUESTS)) {
     if (mediaType && tmdbId) {

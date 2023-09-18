@@ -215,7 +215,7 @@ const UserGeneralSettings = () => {
                     ) : user?.userType === UserType.JELLYFIN ? (
                       <Badge badgeType="default">
                         {intl.formatMessage(messages.mediaServerUser, {
-                          mediaServerName: 'Jellyfin',
+                          mediaServerName: 'Sluthub',
                         })}
                       </Badge>
                     ) : null}

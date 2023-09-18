@@ -99,7 +99,7 @@ const SetupLogin: React.FC<LoginWithMediaServerProps> = ({ onComplete }) => {
                       mediaServerName: 'Emby',
                     })
                   : intl.formatMessage(messages.signinWithJellyfin, {
-                      mediaServerName: 'Jellyfin',
+                      mediaServerName: 'Sluthub',
                     })}
               </button>
               <AccordionContent isOpen={openIndexes.includes(1)}>

@@ -267,7 +267,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
       return intl.formatMessage(messages.play, { mediaServerName: 'Plex' });
     }
 
-    return intl.formatMessage(messages.play, { mediaServerName: 'Jellyfin' });
+    return intl.formatMessage(messages.play, { mediaServerName: 'Sluthub' });
   }
 
   function getAvalaible4kMediaServerName() {
@@ -279,7 +279,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
       return intl.formatMessage(messages.play4k, { mediaServerName: 'Plex' });
     }
 
-    return intl.formatMessage(messages.play4k, { mediaServerName: 'Jellyfin' });
+    return intl.formatMessage(messages.play4k, { mediaServerName: 'Sluthub' });
   }
 
   return (
