@@ -1,6 +1,6 @@
 import Button from '@app/components/Common/Button';
 import Tooltip from '@app/components/Common/Tooltip';
-import useSettings from '@app/hooks/useSettings';
+// import useSettings from '@app/hooks/useSettings';
 import { InformationCircleIcon } from '@heroicons/react/24/solid';
 import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
@@ -43,7 +43,7 @@ const JellyfinLogin: React.FC<JellyfinLoginProps> = ({
 }) => {
   const toasts = useToasts();
   const intl = useIntl();
-  const settings = useSettings();
+  // const settings = useSettings();
   const { publicRuntimeConfig } = getConfig();
 
   if (initial) {
