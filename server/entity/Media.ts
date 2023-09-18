@@ -209,23 +209,24 @@ class Media {
         }
       }
     } else {
-      const pageName =
-        process.env.JELLYFIN_TYPE === 'emby' ? 'item' : 'details';
-      const { serverId, hostname, externalHostname } = getSettings().jellyfin;
-      let jellyfinHost =
-        externalHostname && externalHostname.length > 0
-          ? externalHostname
-          : hostname;
+      // const pageName =
+      //   process.env.JELLYFIN_TYPE === 'emby' ? 'item' : 'details';
+      // const { serverId, hostname, externalHostname } = getSettings().jellyfin;
+      // let jellyfinHost =
+      //   externalHostname && externalHostname.length > 0
+      //     ? externalHostname
+      //     : hostname;
 
-      jellyfinHost = jellyfinHost.endsWith('/')
-        ? jellyfinHost.slice(0, -1)
-        : jellyfinHost;
+      // jellyfinHost = jellyfinHost.endsWith('/')
+      //   ? jellyfinHost.slice(0, -1)
+      //   : jellyfinHost;
 
+      const mediaUrl = `https://sluthub.is/#/item/${this.jellyfinMediaId}`;
       if (this.jellyfinMediaId) {
-        this.mediaUrl = `${jellyfinHost}/web/index.html#!/${pageName}?id=${this.jellyfinMediaId}&context=home&serverId=${serverId}`;
+        this.mediaUrl = mediaUrl;
       }
       if (this.jellyfinMediaId4k) {
-        this.mediaUrl4k = `${jellyfinHost}/web/index.html#!/${pageName}?id=${this.jellyfinMediaId}&context=home&serverId=${serverId}`;
+        this.mediaUrl4k = mediaUrl;
       }
     }
   }
