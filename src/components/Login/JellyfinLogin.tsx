@@ -291,7 +291,7 @@ const JellyfinLogin: React.FC<JellyfinLoginProps> = ({
                   <div className="mt-8 border-t border-gray-700 pt-5">
                     <div className="flex justify-between">
                       <span className="inline-flex rounded-md shadow-sm">
-                        <Button
+                        {/* <Button
                           as="a"
                           buttonType="ghost"
                           href={
@@ -303,7 +303,7 @@ const JellyfinLogin: React.FC<JellyfinLoginProps> = ({
                           }
                         >
                           {intl.formatMessage(messages.forgotpassword)}
-                        </Button>
+                        </Button> */}
                       </span>
                       <span className="inline-flex rounded-md shadow-sm">
                         <Button
