@@ -77,6 +77,8 @@ export interface RadarrSettings extends DVRSettings {
 }
 
 export interface SonarrSettings extends DVRSettings {
+  seriesType: 'standard' | 'daily' | 'anime';
+  animeSeriesType: 'standard' | 'daily' | 'anime';
   activeAnimeProfileId?: number;
   activeAnimeProfileName?: string;
   activeAnimeDirectory?: string;
@@ -128,6 +130,7 @@ interface FullPublicSettings extends PublicSettings {
   originalLanguage: string;
   mediaServerType: number;
   jellyfinHost?: string;
+  jellyfinExternalHost?: string;
   jellyfinServerName?: string;
   partialRequestsEnabled: boolean;
   cacheImages: boolean;
@@ -204,6 +207,7 @@ export interface NotificationAgentPushover extends NotificationAgentConfig {
   options: {
     accessToken: string;
     userToken: string;
+    sound: string;
   };
 }
 
@@ -396,6 +400,7 @@ class Settings {
             options: {
               accessToken: '',
               userToken: '',
+              sound: '',
             },
           },
           webhook: {
@@ -539,6 +544,7 @@ class Settings {
       originalLanguage: this.data.main.originalLanguage,
       mediaServerType: this.main.mediaServerType,
       jellyfinHost: this.jellyfin.hostname,
+      jellyfinExternalHost: this.jellyfin.externalHostname,
       partialRequestsEnabled: this.data.main.partialRequestsEnabled,
       cacheImages: this.data.main.cacheImages,
       vapidPublic: this.vapidPublic,
