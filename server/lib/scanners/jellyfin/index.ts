@@ -26,7 +26,7 @@ interface SyncStatus {
   libraries: Library[];
 }
 
-class JobJellyfinSync {
+class JellyfinScanner {
   private sessionId: string;
   private tmdb: TheMovieDb;
   private jfClient: JellyfinAPI;
@@ -62,7 +62,7 @@ class JobJellyfinSync {
       const metadata = await this.jfClient.getItemData(jellyfinitem.Id);
       const newMedia = new Media();
 
-      if (!metadata.Id) {
+      if (!metadata?.Id) {
         logger.debug('No Id metadata for this title. Skipping', {
           label: 'Plex Sync',
           ratingKey: jellyfinitem.Id,
@@ -83,13 +83,17 @@ class JobJellyfinSync {
       }
 
       const has4k = metadata.MediaSources?.some((MediaSource) => {
-        return MediaSource.MediaStreams.some((MediaStream) => {
+        return MediaSource.MediaStreams.filter(
+          (MediaStream) => MediaStream.Type === 'Video'
+        ).some((MediaStream) => {
           return (MediaStream.Width ?? 0) > 2000;
         });
       });
 
       const hasOtherResolution = metadata.MediaSources?.some((MediaSource) => {
-        return MediaSource.MediaStreams.some((MediaStream) => {
+        return MediaSource.MediaStreams.filter(
+          (MediaStream) => MediaStream.Type === 'Video'
+        ).some((MediaStream) => {
           return (MediaStream.Width ?? 0) <= 2000;
         });
       });
@@ -168,9 +172,9 @@ class JobJellyfinSync {
           newMedia.jellyfinMediaId =
             hasOtherResolution || (!this.enable4kMovie && has4k)
               ? metadata.Id
-              : undefined;
+              : null;
           newMedia.jellyfinMediaId4k =
-            has4k && this.enable4kMovie ? metadata.Id : undefined;
+            has4k && this.enable4kMovie ? metadata.Id : null;
           await mediaRepository.save(newMedia);
           this.log(`Saved ${metadata.Name}`);
         }
@@ -196,6 +200,14 @@ class JobJellyfinSync {
       const Id =
         jellyfinitem.SeriesId ?? jellyfinitem.SeasonId ?? jellyfinitem.Id;
       const metadata = await this.jfClient.getItemData(Id);
+
+      if (!metadata?.Id) {
+        logger.debug('No Id metadata for this title. Skipping', {
+          label: 'Plex Sync',
+          ratingKey: jellyfinitem.Id,
+        });
+        return;
+      }
 
       if (metadata.ProviderIds.Tvdb) {
         tvShow = await this.tmdb.getShowByTvdbId({
@@ -275,7 +287,7 @@ class JobJellyfinSync {
                     episode.Id
                   );
 
-                  ExtendedEpisodeData.MediaSources?.some((MediaSource) => {
+                  ExtendedEpisodeData?.MediaSources?.some((MediaSource) => {
                     return MediaSource.MediaStreams.some((MediaStream) => {
                       if (MediaStream.Type === 'Video') {
                         if ((MediaStream.Width ?? 0) >= 2000) {
@@ -453,8 +465,9 @@ class JobJellyfinSync {
               tmdbId: tvShow.id,
               tvdbId: tvShow.external_ids.tvdb_id,
               mediaAddedAt: new Date(metadata.DateCreated ?? ''),
-              jellyfinMediaId: Id,
-              jellyfinMediaId4k: Id,
+              jellyfinMediaId: isAllStandardSeasons ? Id : null,
+              jellyfinMediaId4k:
+                isAll4kSeasons && this.enable4kShow ? Id : null,
               status: isAllStandardSeasons
                 ? MediaStatus.AVAILABLE
                 : newSeasons.some(
@@ -675,7 +688,7 @@ class JobJellyfinSync {
   }
 }
 
-export const jobJellyfinFullSync = new JobJellyfinSync();
-export const jobJellyfinRecentSync = new JobJellyfinSync({
+export const jellyfinFullScanner = new JellyfinScanner();
+export const jellyfinRecentScanner = new JellyfinScanner({
   isRecentOnly: true,
 });

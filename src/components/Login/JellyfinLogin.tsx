@@ -2,6 +2,7 @@ import Button from '@app/components/Common/Button';
 import Tooltip from '@app/components/Common/Tooltip';
 // import useSettings from '@app/hooks/useSettings';
 import { InformationCircleIcon } from '@heroicons/react/24/solid';
+import { ApiErrorCode } from '@server/constants/error';
 import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
 import getConfig from 'next/config';
@@ -24,7 +25,9 @@ const messages = defineMessages({
   validationusernamerequired: 'Username required',
   validationpasswordrequired: 'Password required',
   loginerror: 'Something went wrong while trying to sign in.',
+  adminerror: 'You must use an admin account to sign in.',
   credentialerror: 'The username or password is incorrect.',
+  invalidurlerror: 'Unable to connect to {mediaServerName} server.',
   signingin: 'Signing in…',
   signin: 'Sign In',
   initialsigningin: 'Connecting…',
@@ -90,12 +93,24 @@ const JellyfinLogin: React.FC<JellyfinLoginProps> = ({
               email: values.email,
             });
           } catch (e) {
+            let errorMessage = null;
+            switch (e.response?.data?.message) {
+              case ApiErrorCode.InvalidUrl:
+                errorMessage = messages.invalidurlerror;
+                break;
+              case ApiErrorCode.InvalidCredentials:
+                errorMessage = messages.credentialerror;
+                break;
+              case ApiErrorCode.NotAdmin:
+                errorMessage = messages.adminerror;
+                break;
+              default:
+                errorMessage = messages.loginerror;
+                break;
+            }
+
             toasts.addToast(
-              intl.formatMessage(
-                e.message == 'Request failed with status code 401'
-                  ? messages.credentialerror
-                  : messages.loginerror
-              ),
+              intl.formatMessage(errorMessage, mediaServerFormatValues),
               {
                 autoDismiss: true,
                 appearance: 'error',
@@ -219,9 +234,11 @@ const JellyfinLogin: React.FC<JellyfinLoginProps> = ({
       ),
       password: Yup.string(),
     });
-    // const baseUrl = settings.currentSettings.jellyfinExternalHost
-    //   ? settings.currentSettings.jellyfinExternalHost
-    //   : settings.currentSettings.jellyfinHost;
+    const baseUrl = settings.currentSettings.jellyfinExternalHost
+      ? settings.currentSettings.jellyfinExternalHost
+      : settings.currentSettings.jellyfinHost;
+    const jellyfinForgotPasswordUrl =
+      settings.currentSettings.jellyfinForgotPasswordUrl;
     return (
       <div>
         <Formik
@@ -298,11 +315,15 @@ const JellyfinLogin: React.FC<JellyfinLoginProps> = ({
                         {/* <Button
                           as="a"
                           buttonType="ghost"
-                          href={`${baseUrl}/web/index.html#!/${
-                            process.env.JELLYFIN_TYPE === 'emby'
-                              ? 'startup/'
-                              : ''
-                          }forgotpassword.html`}
+                          href={
+                            jellyfinForgotPasswordUrl
+                              ? `${jellyfinForgotPasswordUrl}`
+                              : `${baseUrl}/web/index.html#!/${
+                                  process.env.JELLYFIN_TYPE === 'emby'
+                                    ? 'startup/'
+                                    : ''
+                                }forgotpassword.html`
+                          }
                         >
                           {intl.formatMessage(messages.forgotpassword)}
                         </Button> */}
