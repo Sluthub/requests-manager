@@ -11,7 +11,6 @@ import { Transition } from '@headlessui/react';
 import { XCircleIcon } from '@heroicons/react/24/solid';
 import { MediaServerType } from '@server/constants/server';
 import { useRouter } from 'next/dist/client/router';
-import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import useSWR from 'swr';
@@ -86,15 +85,6 @@ const Login = () => {
     revalidateOnFocus: false,
   });
 
-  const mediaServerFormatValues = {
-    mediaServerName:
-      settings.currentSettings.mediaServerType === MediaServerType.JELLYFIN
-        ? 'Jellyfin'
-        : settings.currentSettings.mediaServerType === MediaServerType.EMBY
-          ? 'Emby'
-          : undefined,
-  };
-
   return (
     <div className="relative flex min-h-screen flex-col bg-gray-900 py-14">
       <PageTitle title={intl.formatMessage(messages.signin)} />
@@ -158,10 +148,7 @@ const Login = () => {
                       MediaServerType.PLEX
                       ? intl.formatMessage(messages.signinwithplex)
                       : intl.formatMessage(messages.signinwithjellyfin, {
-                        mediaServerName:
-                          publicRuntimeConfig.JELLYFIN_TYPE == 'emby'
-                            ? 'Emby'
-                            : 'Sluthub',
+                        mediaServerName: 'Sluthub'
                       })}
                   </button>
                   <AccordionContent isOpen={openIndexes.includes(0)}>
@@ -181,8 +168,8 @@ const Login = () => {
                     <div>
                       <button
                         className={`w-full cursor-default bg-gray-800 bg-opacity-70 py-2 text-center text-sm font-bold text-gray-400 transition-colors duration-200 hover:cursor-pointer hover:bg-gray-700 focus:outline-none ${openIndexes.includes(1)
-                            ? 'text-indigo-500'
-                            : 'sm:rounded-b-lg'
+                          ? 'text-indigo-500'
+                          : 'sm:rounded-b-lg'
                           }`}
                         onClick={() => handleClick(1)}
                       >

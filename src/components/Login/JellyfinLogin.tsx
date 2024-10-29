@@ -1,6 +1,6 @@
 import Button from '@app/components/Common/Button';
 import Tooltip from '@app/components/Common/Tooltip';
-import useSettings from '@app/hooks/useSettings';
+import defineMessages from '@app/utils/defineMessages';
 import { InformationCircleIcon } from '@heroicons/react/24/solid';
 import { ApiErrorCode } from '@server/constants/error';
 import { MediaServerType, ServerType } from '@server/constants/server';
@@ -59,9 +59,6 @@ const JellyfinLogin: React.FC<JellyfinLoginProps> = ({
 }) => {
   const toasts = useToasts();
   const intl = useIntl();
-  const settings = useSettings();
-  const { publicRuntimeConfig } = getConfig();
-  const settings = useSettings();
 
   const mediaServerFormatValues = {
     mediaServerName:
@@ -356,11 +353,6 @@ const JellyfinLogin: React.FC<JellyfinLoginProps> = ({
       ),
       password: Yup.string(),
     });
-    const baseUrl = settings.currentSettings.jellyfinExternalHost
-      ? settings.currentSettings.jellyfinExternalHost
-      : settings.currentSettings.jellyfinHost;
-    const jellyfinForgotPasswordUrl =
-      settings.currentSettings.jellyfinForgotPasswordUrl;
     return (
       <div>
         <Formik

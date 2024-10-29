@@ -5,7 +5,6 @@ import LanguagePicker from '@app/components/Layout/LanguagePicker';
 import defineMessages from '@app/utils/defineMessages';
 import { ArrowLeftIcon, EnvelopeIcon } from '@heroicons/react/24/solid';
 import { Field, Form, Formik } from 'formik';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
