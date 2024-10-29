@@ -3,16 +3,17 @@ import ImageFader from '@app/components/Common/ImageFader';
 import SensitiveInput from '@app/components/Common/SensitiveInput';
 import LanguagePicker from '@app/components/Layout/LanguagePicker';
 import globalMessages from '@app/i18n/globalMessages';
+import defineMessages from '@app/utils/defineMessages';
 import { LifebuoyIcon } from '@heroicons/react/24/outline';
-import axios from 'axios';
 import { Form, Formik } from 'formik';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useState } from 'react';
-import { defineMessages, useIntl } from 'react-intl';
+import { useIntl } from 'react-intl';
 import * as Yup from 'yup';
 
-const messages = defineMessages({
+const messages = defineMessages('components.ResetPassword', {
   passwordreset: 'Password Reset',
   resetpassword: 'Reset your password',
   password: 'Password',
@@ -81,7 +82,7 @@ const ResetPassword = () => {
                   {intl.formatMessage(messages.resetpasswordsuccessmessage)}
                 </p>
                 <span className="mt-4 flex justify-center rounded-md shadow-sm">
-                  <Link href="/login" passHref>
+                  <Link href="/login" passHref legacyBehavior>
                     <Button as="a" buttonType="ghost">
                       {intl.formatMessage(messages.gobacklogin)}
                     </Button>
@@ -96,14 +97,21 @@ const ResetPassword = () => {
                 }}
                 validationSchema={ResetSchema}
                 onSubmit={async (values) => {
-                  const response = await axios.post(
+                  const res = await fetch(
                     `/api/v1/auth/reset-password/${guid}`,
                     {
-                      password: values.password,
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        password: values.password,
+                      }),
                     }
                   );
+                  if (!res.ok) throw new Error();
 
-                  if (response.status === 200) {
+                  if (res.status === 200) {
                     setSubmitted(true);
                   }
                 }}

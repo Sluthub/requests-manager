@@ -6,16 +6,17 @@ import PageTitle from '@app/components/Common/PageTitle';
 import TitleCard from '@app/components/TitleCard';
 import globalMessages from '@app/i18n/globalMessages';
 import Error from '@app/pages/_error';
+import defineMessages from '@app/utils/defineMessages';
 import type { PersonCombinedCreditsResponse } from '@server/interfaces/api/personInterfaces';
 import type { PersonDetails as PersonDetailsType } from '@server/models/Person';
 import { groupBy } from 'lodash';
 import { useRouter } from 'next/router';
 import { useMemo, useState } from 'react';
-import { defineMessages, useIntl } from 'react-intl';
+import { useIntl } from 'react-intl';
 import TruncateMarkup from 'react-truncate-markup';
 import useSWR from 'swr';
 
-const messages = defineMessages({
+const messages = defineMessages('components.PersonDetails', {
   birthdate: 'Born {birthdate}',
   lifespan: '{birthdate} – {deathdate}',
   alsoknownas: 'Also Known As: {names}',
@@ -226,10 +227,11 @@ const PersonDetails = () => {
         {data.profilePath && (
           <div className="relative mb-6 mr-0 h-36 w-36 flex-shrink-0 overflow-hidden rounded-full ring-1 ring-gray-700 lg:mb-0 lg:mr-6 lg:h-44 lg:w-44">
             <CachedImage
+              type="tmdb"
               src={`https://image.tmdb.org/t/p/w600_and_h900_bestv2${data.profilePath}`}
               alt=""
-              layout="fill"
-              objectFit="cover"
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              fill
             />
           </div>
         )}

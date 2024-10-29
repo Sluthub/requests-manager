@@ -12,18 +12,18 @@ import { availableLanguages } from '@app/context/LanguageContext';
 import useLocale from '@app/hooks/useLocale';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
+import defineMessages from '@app/utils/defineMessages';
 import { ArrowDownOnSquareIcon } from '@heroicons/react/24/outline';
 import { ArrowPathIcon } from '@heroicons/react/24/solid';
 import type { UserSettingsGeneralResponse } from '@server/interfaces/api/userSettingsInterfaces';
 import type { MainSettings } from '@server/lib/settings';
-import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
-import { defineMessages, useIntl } from 'react-intl';
+import { useIntl } from 'react-intl';
 import { useToasts } from 'react-toast-notifications';
 import useSWR, { mutate } from 'swr';
 import * as Yup from 'yup';
 
-const messages = defineMessages({
+const messages = defineMessages('components.Settings.SettingsMain', {
   general: 'General',
   generalsettings: 'General Settings',
   generalsettingsDescription:
@@ -55,6 +55,8 @@ const messages = defineMessages({
   validationApplicationUrlTrailingSlash: 'URL must not end in a trailing slash',
   partialRequestsEnabled: 'Allow Partial Series Requests',
   locale: 'Display Language',
+  httpProxy: 'HTTP Proxy',
+  httpProxyTip: 'Tooltip to write',
 });
 
 const SettingsMain = () => {
@@ -82,11 +84,17 @@ const SettingsMain = () => {
         intl.formatMessage(messages.validationApplicationUrlTrailingSlash),
         (value) => !value || !value.endsWith('/')
       ),
+    httpProxy: Yup.string().url(
+      intl.formatMessage(messages.validationApplicationUrl)
+    ),
   });
 
   const regenerate = async () => {
     try {
-      await axios.post('/api/v1/settings/main/regenerate');
+      const res = await fetch('/api/v1/settings/main/regenerate', {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error();
 
       revalidate();
       addToast(intl.formatMessage(messages.toastApiKeySuccess), {
@@ -134,23 +142,32 @@ const SettingsMain = () => {
             partialRequestsEnabled: data?.partialRequestsEnabled,
             trustProxy: data?.trustProxy,
             cacheImages: data?.cacheImages,
+            httpProxy: data?.httpProxy,
           }}
           enableReinitialize
           validationSchema={MainSettingsSchema}
           onSubmit={async (values) => {
             try {
-              await axios.post('/api/v1/settings/main', {
-                applicationTitle: values.applicationTitle,
-                applicationUrl: values.applicationUrl,
-                csrfProtection: values.csrfProtection,
-                hideAvailable: values.hideAvailable,
-                locale: values.locale,
-                region: values.region,
-                originalLanguage: values.originalLanguage,
-                partialRequestsEnabled: values.partialRequestsEnabled,
-                trustProxy: values.trustProxy,
-                cacheImages: values.cacheImages,
+              const res = await fetch('/api/v1/settings/main', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  applicationTitle: values.applicationTitle,
+                  applicationUrl: values.applicationUrl,
+                  csrfProtection: values.csrfProtection,
+                  hideAvailable: values.hideAvailable,
+                  locale: values.locale,
+                  region: values.region,
+                  originalLanguage: values.originalLanguage,
+                  partialRequestsEnabled: values.partialRequestsEnabled,
+                  trustProxy: values.trustProxy,
+                  cacheImages: values.cacheImages,
+                  httpProxy: values.httpProxy,
+                }),
               });
+              if (!res.ok) throw new Error();
               mutate('/api/v1/settings/public');
               mutate('/api/v1/status');
 
@@ -425,6 +442,28 @@ const SettingsMain = () => {
                         );
                       }}
                     />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="httpProxy" className="checkbox-label">
+                    <span className="mr-2">
+                      {intl.formatMessage(messages.httpProxy)}
+                    </span>
+                    <SettingsBadge badgeType="advanced" className="mr-2" />
+                    <SettingsBadge badgeType="restartRequired" />
+                    <span className="label-tip">
+                      {intl.formatMessage(messages.httpProxyTip)}
+                    </span>
+                  </label>
+                  <div className="form-input-area">
+                    <div className="form-input-field">
+                      <Field id="httpProxy" name="httpProxy" type="text" />
+                    </div>
+                    {errors.httpProxy &&
+                      touched.httpProxy &&
+                      typeof errors.httpProxy === 'string' && (
+                        <div className="error">{errors.httpProxy}</div>
+                      )}
                   </div>
                 </div>
                 <div className="actions">

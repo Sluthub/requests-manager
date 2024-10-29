@@ -10,6 +10,7 @@ import useSettings from '@app/hooks/useSettings';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import Error from '@app/pages/_error';
+import defineMessages from '@app/utils/defineMessages';
 import { refreshIntervalHelper } from '@app/utils/refreshIntervalHelper';
 import { ArrowDownTrayIcon } from '@heroicons/react/24/outline';
 import { MediaStatus } from '@server/constants/media';
@@ -18,10 +19,10 @@ import { uniq } from 'lodash';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useMemo, useState } from 'react';
-import { defineMessages, useIntl } from 'react-intl';
+import { useIntl } from 'react-intl';
 import useSWR from 'swr';
 
-const messages = defineMessages({
+const messages = defineMessages('components.CollectionDetails', {
   overview: 'Overview',
   numberofmovies: '{count} Movies',
   requestcollection: 'Request Collection',
@@ -166,10 +167,9 @@ const CollectionDetails = ({ collection }: CollectionDetailsProps) => {
           <Link
             href={`/discover/movies/genre/${genreId}`}
             key={`genre-${genreId}`}
+            className="hover:underline"
           >
-            <a className="hover:underline">
-              {genres.find((g) => g.id === genreId)?.name}
-            </a>
+            {genres.find((g) => g.id === genreId)?.name}
           </Link>
         ))
         .reduce((prev, curr) => (
@@ -183,6 +183,11 @@ const CollectionDetails = ({ collection }: CollectionDetailsProps) => {
     );
   }
 
+  const blacklistVisibility = hasPermission(
+    [Permission.MANAGE_BLACKLIST, Permission.VIEW_BLACKLIST],
+    { type: 'or' }
+  );
+
   return (
     <div
       className="media-page"
@@ -193,10 +198,11 @@ const CollectionDetails = ({ collection }: CollectionDetailsProps) => {
       {data.backdropPath && (
         <div className="media-page-bg-image">
           <CachedImage
+            type="tmdb"
             alt=""
             src={`https://image.tmdb.org/t/p/w1920_and_h800_multi_faces/${data.backdropPath}`}
-            layout="fill"
-            objectFit="cover"
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            fill
             priority
           />
           <div
@@ -223,13 +229,15 @@ const CollectionDetails = ({ collection }: CollectionDetailsProps) => {
       <div className="media-header">
         <div className="media-poster">
           <CachedImage
+            type="tmdb"
             src={
               data.posterPath
                 ? `https://image.tmdb.org/t/p/w600_and_h900_bestv2${data.posterPath}`
                 : '/images/overseerr_poster_not_found.png'
             }
             alt=""
-            layout="responsive"
+            sizes="100vw"
+            style={{ width: '100%', height: 'auto' }}
             width={600}
             height={900}
             priority
@@ -334,20 +342,26 @@ const CollectionDetails = ({ collection }: CollectionDetailsProps) => {
         sliderKey="collection-movies"
         isLoading={false}
         isEmpty={data.parts.length === 0}
-        items={data.parts.map((title) => (
-          <TitleCard
-            key={`collection-movie-${title.id}`}
-            id={title.id}
-            isAddedToWatchlist={title.mediaInfo?.watchlists?.length ?? 0}
-            image={title.posterPath}
-            status={title.mediaInfo?.status}
-            summary={title.overview}
-            title={title.title}
-            userScore={title.voteAverage}
-            year={title.releaseDate}
-            mediaType={title.mediaType}
-          />
-        ))}
+        items={data.parts
+          .filter((title) => {
+            if (!blacklistVisibility)
+              return title.mediaInfo?.status !== MediaStatus.BLACKLISTED;
+            return title;
+          })
+          .map((title) => (
+            <TitleCard
+              key={`collection-movie-${title.id}`}
+              id={title.id}
+              isAddedToWatchlist={title.mediaInfo?.watchlists?.length ?? 0}
+              image={title.posterPath}
+              status={title.mediaInfo?.status}
+              summary={title.overview}
+              title={title.title}
+              userScore={title.voteAverage}
+              year={title.releaseDate}
+              mediaType={title.mediaType}
+            />
+          ))}
       />
       <div className="extra-bottom-space relative" />
     </div>

@@ -3,12 +3,14 @@ import SonarrAPI from '@server/api/servarr/sonarr';
 import { MediaStatus, MediaType } from '@server/constants/media';
 import { MediaServerType } from '@server/constants/server';
 import { getRepository } from '@server/datasource';
+import { Blacklist } from '@server/entity/Blacklist';
 import type { User } from '@server/entity/User';
 import { Watchlist } from '@server/entity/Watchlist';
 import type { DownloadingItem } from '@server/lib/downloadtracker';
 import downloadTracker from '@server/lib/downloadtracker';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
+import { getHostname } from '@server/utils/getHostname';
 import {
   AfterLoad,
   Column,
@@ -16,6 +18,7 @@ import {
   Entity,
   Index,
   OneToMany,
+  OneToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -65,7 +68,7 @@ class Media {
 
     try {
       const media = await mediaRepository.findOne({
-        where: { tmdbId: id, mediaType },
+        where: { tmdbId: id, mediaType: mediaType },
         relations: { requests: true, issues: true },
       });
 
@@ -114,6 +117,11 @@ class Media {
 
   @OneToMany(() => Issue, (issue) => issue.media, { cascade: true })
   public issues: Issue[];
+
+  @OneToOne(() => Blacklist, (blacklist) => blacklist.media, {
+    eager: true,
+  })
+  public blacklist: Blacklist;
 
   @CreateDateColumn()
   public createdAt: Date;
@@ -182,11 +190,9 @@ class Media {
 
     if (getSettings().main.mediaServerType == MediaServerType.PLEX) {
       if (this.ratingKey) {
-        this.mediaUrl = `${
-          webAppUrl ? webAppUrl : 'https://app.plex.tv/desktop'
-        }#!/server/${machineId}/details?key=%2Flibrary%2Fmetadata%2F${
-          this.ratingKey
-        }`;
+        this.mediaUrl = `${webAppUrl ? webAppUrl : 'https://app.plex.tv/desktop'
+          }#!/server/${machineId}/details?key=%2Flibrary%2Fmetadata%2F${this.ratingKey
+          }`;
 
         this.iOSPlexUrl = `plex://preplay/?metadataKey=%2Flibrary%2Fmetadata%2F${this.ratingKey}&server=${machineId}`;
 
@@ -195,11 +201,9 @@ class Media {
         }
 
         if (this.ratingKey4k) {
-          this.mediaUrl4k = `${
-            webAppUrl ? webAppUrl : 'https://app.plex.tv/desktop'
-          }#!/server/${machineId}/details?key=%2Flibrary%2Fmetadata%2F${
-            this.ratingKey4k
-          }`;
+          this.mediaUrl4k = `${webAppUrl ? webAppUrl : 'https://app.plex.tv/desktop'
+            }#!/server/${machineId}/details?key=%2Flibrary%2Fmetadata%2F${this.ratingKey4k
+            }`;
 
           this.iOSPlexUrl4k = `plex://preplay/?metadataKey=%2Flibrary%2Fmetadata%2F${this.ratingKey4k}&server=${machineId}`;
 
@@ -257,9 +261,9 @@ class Media {
           this.serviceUrl4k = server.externalUrl
             ? `${server.externalUrl}/movie/${this.externalServiceSlug4k}`
             : RadarrAPI.buildUrl(
-                server,
-                `/movie/${this.externalServiceSlug4k}`
-              );
+              server,
+              `/movie/${this.externalServiceSlug4k}`
+            );
         }
       }
     }
@@ -288,9 +292,9 @@ class Media {
           this.serviceUrl4k = server.externalUrl
             ? `${server.externalUrl}/series/${this.externalServiceSlug4k}`
             : SonarrAPI.buildUrl(
-                server,
-                `/series/${this.externalServiceSlug4k}`
-              );
+              server,
+              `/series/${this.externalServiceSlug4k}`
+            );
         }
       }
     }

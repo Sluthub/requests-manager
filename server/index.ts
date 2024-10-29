@@ -19,28 +19,32 @@ import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import clearCookies from '@server/middleware/clearcookies';
 import routes from '@server/routes';
+import avatarproxy from '@server/routes/avatarproxy';
 import imageproxy from '@server/routes/imageproxy';
+import { appDataPermissions } from '@server/utils/appDataVolume';
 import { getAppVersion } from '@server/utils/appVersion';
 import restartFlag from '@server/utils/restartFlag';
 import { getClientIp } from '@supercharge/request-ip';
-import type CacheableLookupType from 'cacheable-lookup';
 import { TypeormStore } from 'connect-typeorm/out';
 import cookieParser from 'cookie-parser';
 import csurf from 'csurf';
-import { lookup } from 'dns';
 import type { NextFunction, Request, Response } from 'express';
 import express from 'express';
 import * as OpenApiValidator from 'express-openapi-validator';
 import type { Store } from 'express-session';
 import session from 'express-session';
 import next from 'next';
-import http from 'node:http';
-import https from 'node:https';
+import dns from 'node:dns';
+import net from 'node:net';
 import path from 'path';
 import swaggerUi from 'swagger-ui-express';
+import { ProxyAgent, setGlobalDispatcher } from 'undici';
 import YAML from 'yamljs';
 
-const _importDynamic = new Function('modulePath', 'return import(modulePath)');
+if (process.env.forceIpv4First === 'true') {
+  dns.setDefaultResultOrder('ipv4first');
+  net.setDefaultAutoSelectFamily(false);
+}
 
 const API_SPEC_PATH = path.join(__dirname, '../overseerr-api.yml');
 
@@ -49,28 +53,15 @@ const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
 const handle = app.getRequestHandler();
 
+if (!appDataPermissions()) {
+  logger.error(
+    'Something went wrong while checking config folder! Please ensure the config folder is set up properly.\nhttps://docs.jellyseerr.dev/getting-started'
+  );
+}
+
 app
   .prepare()
   .then(async () => {
-    const CacheableLookup = (await _importDynamic('cacheable-lookup'))
-      .default as typeof CacheableLookupType;
-    const cacheable = new CacheableLookup();
-
-    const originalLookup = cacheable.lookup;
-
-    // if hostname is localhost use dns.lookup instead of cacheable-lookup
-    cacheable.lookup = (...args: any) => {
-      const [hostname] = args;
-      if (hostname === 'localhost') {
-        lookup(...(args as Parameters<typeof lookup>));
-      } else {
-        originalLookup(...(args as Parameters<typeof originalLookup>));
-      }
-    };
-
-    cacheable.install(http.globalAgent);
-    cacheable.install(https.globalAgent);
-
     const dbConnection = await dataSource.initialize();
 
     // Run migrations in production
@@ -81,8 +72,13 @@ app
     }
 
     // Load Settings
-    const settings = getSettings().load();
+    const settings = await getSettings().load();
     restartFlag.initializeSettings(settings.main);
+
+    // Register HTTP proxy
+    if (settings.main.httpProxy) {
+      setGlobalDispatcher(new ProxyAgent(settings.main.httpProxy));
+    }
 
     // Migrate library types
     if (
@@ -146,7 +142,7 @@ app
       try {
         const descriptor = Object.getOwnPropertyDescriptor(req, 'ip');
         if (descriptor?.writable === true) {
-          req.ip = getClientIp(req) ?? '';
+          (req as any).ip = getClientIp(req) ?? '';
         }
       } catch (e) {
         logger.error('Failed to attach the ip to the request', {
@@ -192,7 +188,7 @@ app
         },
         store: new TypeormStore({
           cleanupLimit: 2,
-          ttl: 1000 * 60 * 60 * 24 * 30,
+          ttl: 60 * 60 * 24 * 30,
         }).connect(sessionRespository) as Store,
       })
     );
@@ -220,6 +216,7 @@ app
 
     // Do not set cookies so CDNs can cache them
     server.use('/imageproxy', clearCookies, imageproxy);
+    server.use('/avatarproxy', clearCookies, avatarproxy);
 
     server.get('*', (req, res) => handle(req, res));
     server.use(

@@ -2,15 +2,16 @@ import Button from '@app/components/Common/Button';
 import ImageFader from '@app/components/Common/ImageFader';
 import PageTitle from '@app/components/Common/PageTitle';
 import LanguagePicker from '@app/components/Layout/LanguagePicker';
+import defineMessages from '@app/utils/defineMessages';
 import { ArrowLeftIcon, EnvelopeIcon } from '@heroicons/react/24/solid';
-import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
-import { defineMessages, useIntl } from 'react-intl';
+import { useIntl } from 'react-intl';
 import * as Yup from 'yup';
 
-const messages = defineMessages({
+const messages = defineMessages('components.ResetPassword', {
   passwordreset: 'Password Reset',
   resetpassword: 'Reset your password',
   emailresetlink: 'Email Recovery Link',
@@ -66,7 +67,7 @@ const ResetPassword = () => {
                   {intl.formatMessage(messages.requestresetlinksuccessmessage)}
                 </p>
                 <span className="mt-4 flex justify-center rounded-md shadow-sm">
-                  <Link href="/login" passHref>
+                  <Link href="/login" passHref legacyBehavior>
                     <Button as="a" buttonType="ghost">
                       <ArrowLeftIcon />
                       <span>{intl.formatMessage(messages.gobacklogin)}</span>
@@ -81,14 +82,18 @@ const ResetPassword = () => {
                 }}
                 validationSchema={ResetSchema}
                 onSubmit={async (values) => {
-                  const response = await axios.post(
-                    `/api/v1/auth/reset-password`,
-                    {
+                  const res = await fetch(`/api/v1/auth/reset-password`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
                       email: values.email,
-                    }
-                  );
+                    }),
+                  });
+                  if (!res.ok) throw new Error();
 
-                  if (response.status === 200) {
+                  if (res.status === 200) {
                     setSubmitted(true);
                   }
                 }}

@@ -6,18 +6,18 @@ import LocalLogin from '@app/components/Login/LocalLogin';
 import PlexLoginButton from '@app/components/PlexLoginButton';
 import useSettings from '@app/hooks/useSettings';
 import { useUser } from '@app/hooks/useUser';
+import defineMessages from '@app/utils/defineMessages';
 import { Transition } from '@headlessui/react';
 import { XCircleIcon } from '@heroicons/react/24/solid';
 import { MediaServerType } from '@server/constants/server';
-import axios from 'axios';
-import getConfig from 'next/config';
 import { useRouter } from 'next/dist/client/router';
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
-import { defineMessages, useIntl } from 'react-intl';
+import { useIntl } from 'react-intl';
 import useSWR from 'swr';
 import JellyfinLogin from './JellyfinLogin';
 
-const messages = defineMessages({
+const messages = defineMessages('components.Login', {
   signin: 'Sign In',
   signinheader: 'Sign in to continue',
   signinwithplex: 'Use your Plex account',
@@ -33,7 +33,6 @@ const Login = () => {
   const { user, revalidate } = useUser();
   const router = useRouter();
   const settings = useSettings();
-  const { publicRuntimeConfig } = getConfig();
 
   // Effect that is triggered when the `authToken` comes back from the Plex OAuth
   // We take the token and attempt to sign in. If we get a success message, we will
@@ -42,13 +41,28 @@ const Login = () => {
     const login = async () => {
       setProcessing(true);
       try {
-        const response = await axios.post('/api/v1/auth/plex', { authToken });
+        const res = await fetch('/api/v1/auth/plex', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ authToken }),
+        });
+        if (!res.ok) throw new Error(res.statusText, { cause: res });
+        const data = await res.json();
 
-        if (response.data?.id) {
+        if (data?.id) {
           revalidate();
         }
       } catch (e) {
-        setError(e.response.data.message);
+        let errorData;
+        try {
+          errorData = await e.cause?.text();
+          errorData = JSON.parse(errorData);
+        } catch {
+          /* empty */
+        }
+        setError(errorData?.message);
         setAuthToken(undefined);
         setProcessing(false);
       }
@@ -71,6 +85,15 @@ const Login = () => {
     refreshWhenHidden: false,
     revalidateOnFocus: false,
   });
+
+  const mediaServerFormatValues = {
+    mediaServerName:
+      settings.currentSettings.mediaServerType === MediaServerType.JELLYFIN
+        ? 'Jellyfin'
+        : settings.currentSettings.mediaServerType === MediaServerType.EMBY
+          ? 'Emby'
+          : undefined,
+  };
 
   return (
     <div className="relative flex min-h-screen flex-col bg-gray-900 py-14">
@@ -124,29 +147,27 @@ const Login = () => {
               {({ openIndexes, handleClick, AccordionContent }) => (
                 <>
                   <button
-                    className={`w-full cursor-default bg-gray-800 bg-opacity-70 py-2 text-center text-sm font-bold text-gray-400 transition-colors duration-200 focus:outline-none sm:rounded-t-lg ${
-                      openIndexes.includes(0) && 'text-indigo-500'
-                    } ${
-                      settings.currentSettings.localLogin &&
+                    className={`w-full cursor-default bg-gray-800 bg-opacity-70 py-2 text-center text-sm font-bold text-gray-400 transition-colors duration-200 focus:outline-none sm:rounded-t-lg ${openIndexes.includes(0) && 'text-indigo-500'
+                      } ${settings.currentSettings.localLogin &&
                       'hover:cursor-pointer hover:bg-gray-700'
-                    }`}
+                      }`}
                     onClick={() => handleClick(0)}
                     disabled={!settings.currentSettings.localLogin}
                   >
                     {settings.currentSettings.mediaServerType ==
-                    MediaServerType.PLEX
+                      MediaServerType.PLEX
                       ? intl.formatMessage(messages.signinwithplex)
                       : intl.formatMessage(messages.signinwithjellyfin, {
-                          mediaServerName:
-                            publicRuntimeConfig.JELLYFIN_TYPE == 'emby'
-                              ? 'Emby'
-                              : 'Sluthub',
-                        })}
+                        mediaServerName:
+                          publicRuntimeConfig.JELLYFIN_TYPE == 'emby'
+                            ? 'Emby'
+                            : 'Sluthub',
+                      })}
                   </button>
                   <AccordionContent isOpen={openIndexes.includes(0)}>
                     <div className="px-10 py-8">
                       {settings.currentSettings.mediaServerType ==
-                      MediaServerType.PLEX ? (
+                        MediaServerType.PLEX ? (
                         <PlexLoginButton
                           isProcessing={isProcessing}
                           onAuthToken={(authToken) => setAuthToken(authToken)}
@@ -159,11 +180,10 @@ const Login = () => {
                   {settings.currentSettings.localLogin && (
                     <div>
                       <button
-                        className={`w-full cursor-default bg-gray-800 bg-opacity-70 py-2 text-center text-sm font-bold text-gray-400 transition-colors duration-200 hover:cursor-pointer hover:bg-gray-700 focus:outline-none ${
-                          openIndexes.includes(1)
+                        className={`w-full cursor-default bg-gray-800 bg-opacity-70 py-2 text-center text-sm font-bold text-gray-400 transition-colors duration-200 hover:cursor-pointer hover:bg-gray-700 focus:outline-none ${openIndexes.includes(1)
                             ? 'text-indigo-500'
                             : 'sm:rounded-b-lg'
-                        }`}
+                          }`}
                         onClick={() => handleClick(1)}
                       >
                         {intl.formatMessage(messages.signinwithoverseerr, {
