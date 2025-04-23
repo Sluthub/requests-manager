@@ -10,6 +10,8 @@ module.exports = {
     remotePatterns: [
       { hostname: 'gravatar.com' },
       { hostname: 'image.tmdb.org' },
+      { hostname: 'artworks.thetvdb.com' },
+      { hostname: 'plex.tv' },
     ],
   },
   webpack(config) {

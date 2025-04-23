@@ -55,6 +55,16 @@ body:
         - tablet
     validations:
       required: true
+  - type: dropdown
+    id: database
+    attributes:
+      options:
+        - SQLite (default)
+        - PostgreSQL
+      label: Database
+      description: Which database backend are you using?
+    validations:
+      required: true
   - type: input
     id: device
     attributes:

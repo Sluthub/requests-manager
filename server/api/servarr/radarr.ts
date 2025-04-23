@@ -28,6 +28,39 @@ export interface RadarrMovie {
   qualityProfileId: number;
   added: string;
   hasFile: boolean;
+  tags: number[];
+  movieFile?: {
+    id: number;
+    movieId: number;
+    relativePath?: string;
+    path?: string;
+    size: number;
+    dateAdded: string;
+    sceneName?: string;
+    releaseGroup?: string;
+    edition?: string;
+    indexerFlags?: number;
+    mediaInfo: {
+      id: number;
+      audioBitrate: number;
+      audioChannels: number;
+      audioCodec?: string;
+      audioLanguages?: string;
+      audioStreamCount: number;
+      videoBitDepth: number;
+      videoBitrate: number;
+      videoCodec?: string;
+      videoFps: number;
+      videoDynamicRange?: string;
+      videoDynamicRangeType?: string;
+      resolution?: string;
+      runTime?: string;
+      scanType?: string;
+      subtitles?: string;
+    };
+    originalFilePath?: string;
+    qualityCutoffNotMet: boolean;
+  };
 }
 
 class RadarrAPI extends ServarrBase<{ movieId: number }> {
@@ -104,7 +137,7 @@ class RadarrAPI extends ServarrBase<{ movieId: number }> {
           minimumAvailability: options.minimumAvailability,
           tmdbId: options.tmdbId,
           year: options.year,
-          tags: options.tags,
+          tags: Array.from(new Set([...movie.tags, ...options.tags])),
           rootFolderPath: options.rootFolderPath,
           monitored: options.monitored,
           addOptions: {
@@ -228,6 +261,26 @@ class RadarrAPI extends ServarrBase<{ movieId: number }> {
       logger.info(`[Radarr] Removed movie ${title}`);
     } catch (e) {
       throw new Error(`[Radarr] Failed to remove movie: ${e.message}`);
+    }
+  };
+
+  public clearCache = ({
+    tmdbId,
+    externalId,
+  }: {
+    tmdbId?: number | null;
+    externalId?: number | null;
+  }) => {
+    if (tmdbId) {
+      this.removeCache('/movie/lookup', {
+        term: `tmdb:${tmdbId}`,
+        headers: this.defaultHeaders,
+      });
+    }
+    if (externalId) {
+      this.removeCache(`/movie/${externalId}`, {
+        headers: this.defaultHeaders,
+      });
     }
   };
 }

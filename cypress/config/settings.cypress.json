@@ -4,7 +4,7 @@
   "vapidPublic": "BK_EpP8NDm9waor2zn6_S28o3ZYv4kCkJOfYpO3pt3W6jnPmxrgTLANUBNbbyaNatPnSQ12De9CeqSYQrqWzHTs",
   "main": {
     "apiKey": "testkey",
-    "applicationTitle": "Overseerr",
+    "applicationTitle": "Jellyseerr",
     "applicationUrl": "",
     "csrfProtection": false,
     "cacheImages": false,
@@ -16,11 +16,14 @@
     "hideAvailable": false,
     "localLogin": true,
     "newPlexLogin": true,
-    "region": "",
+    "discoverRegion": "",
+    "streamingRegion": "",
     "originalLanguage": "",
     "trustProxy": false,
     "mediaServerType": 1,
     "partialRequestsEnabled": true,
+    "enableSpecialEpisodes": false,
+    "forceIpv4First": false,
     "locale": "en"
   },
   "plex": {
@@ -67,7 +70,7 @@
           "ignoreTls": false,
           "requireTls": false,
           "allowSelfSigned": false,
-          "senderName": "Overseerr"
+          "senderName": "Jellyseerr"
         }
       },
       "discord": {
@@ -75,6 +78,7 @@
         "types": 0,
         "options": {
           "webhookUrl": "",
+          "webhookRoleId": "",
           "enableMentions": true
         }
       },
@@ -98,6 +102,7 @@
         "options": {
           "botAPI": "",
           "chatId": "",
+          "messageThreadId": "",
           "sendSilently": false
         }
       },

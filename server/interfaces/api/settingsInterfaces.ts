@@ -30,12 +30,15 @@ export interface PublicSettingsResponse {
   applicationUrl: string;
   hideAvailable: boolean;
   localLogin: boolean;
+  mediaServerLogin: boolean;
   movie4kEnabled: boolean;
   series4kEnabled: boolean;
-  region: string;
+  discoverRegion: string;
+  streamingRegion: string;
   originalLanguage: string;
   mediaServerType: number;
   partialRequestsEnabled: boolean;
+  enableSpecialEpisodes: boolean;
   cacheImages: boolean;
   vapidPublic: string;
   enablePushRegistration: boolean;

@@ -1,5 +1,6 @@
 import Modal from '@app/components/Common/Modal';
 import SensitiveInput from '@app/components/Common/SensitiveInput';
+import type { SonarrTestResponse } from '@app/components/Settings/SettingsServices';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { Transition } from '@headlessui/react';
@@ -77,28 +78,6 @@ const messages = defineMessages('components.Settings.SonarrModal', {
   selecttags: 'Select tags',
 });
 
-interface TestResponse {
-  profiles: {
-    id: number;
-    name: string;
-  }[];
-  rootFolders: {
-    id: number;
-    path: string;
-  }[];
-  languageProfiles:
-    | {
-        id: number;
-        name: string;
-      }[]
-    | null;
-  tags: {
-    id: number;
-    label: string;
-  }[];
-  urlBase?: string;
-}
-
 interface SonarrModalProps {
   sonarr: SonarrSettings | null;
   onClose: () => void;
@@ -111,12 +90,13 @@ const SonarrModal = ({ onClose, sonarr, onSave }: SonarrModalProps) => {
   const { addToast } = useToasts();
   const [isValidated, setIsValidated] = useState(sonarr ? true : false);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResponse, setTestResponse] = useState<TestResponse>({
+  const [testResponse, setTestResponse] = useState<SonarrTestResponse>({
     profiles: [],
     rootFolders: [],
     languageProfiles: null,
     tags: [],
   });
+
   const SonarrSettingsSchema = Yup.object().shape({
     name: Yup.string().required(
       intl.formatMessage(messages.validationNameRequired)
@@ -145,7 +125,10 @@ const SonarrModal = ({ onClose, sonarr, onSave }: SonarrModalProps) => {
         )
       : Yup.number(),
     externalUrl: Yup.string()
-      .url(intl.formatMessage(messages.validationApplicationUrl))
+      .matches(
+        /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}(\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&/=]*))?$/i,
+        intl.formatMessage(messages.validationApplicationUrl)
+      )
       .test(
         'no-trailing-slash',
         intl.formatMessage(messages.validationApplicationUrlTrailingSlash),
@@ -194,7 +177,7 @@ const SonarrModal = ({ onClose, sonarr, onSave }: SonarrModalProps) => {
           }),
         });
         if (!res.ok) throw new Error();
-        const data: TestResponse = await res.json();
+        const data: SonarrTestResponse = await res.json();
 
         setIsValidated(true);
         setTestResponse(data);
@@ -432,6 +415,11 @@ const SonarrModal = ({ onClose, sonarr, onSave }: SonarrModalProps) => {
                         id="name"
                         name="name"
                         type="text"
+                        autoComplete="off"
+                        data-form-type="other"
+                        data-1pignore="true"
+                        data-lpignore="true"
+                        data-bwignore="true"
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           setIsValidated(false);
                           setFieldValue('name', e.target.value);
@@ -525,7 +513,6 @@ const SonarrModal = ({ onClose, sonarr, onSave }: SonarrModalProps) => {
                         as="field"
                         id="apiKey"
                         name="apiKey"
-                        autoComplete="one-time-code"
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           setIsValidated(false);
                           setFieldValue('apiKey', e.target.value);

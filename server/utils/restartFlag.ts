@@ -1,20 +1,24 @@
-import type { MainSettings } from '@server/lib/settings';
+import type { AllSettings, NetworkSettings } from '@server/lib/settings';
 import { getSettings } from '@server/lib/settings';
 
 class RestartFlag {
-  private settings: MainSettings;
+  private networkSettings: NetworkSettings;
 
-  public initializeSettings(settings: MainSettings): void {
-    this.settings = { ...settings };
+  public initializeSettings(settings: AllSettings): void {
+    this.networkSettings = {
+      ...settings.network,
+      proxy: { ...settings.network.proxy },
+    };
   }
 
   public isSet(): boolean {
-    const settings = getSettings().main;
+    const networkSettings = getSettings().network;
 
     return (
-      this.settings.csrfProtection !== settings.csrfProtection ||
-      this.settings.trustProxy !== settings.trustProxy ||
-      this.settings.httpProxy !== settings.httpProxy
+      this.networkSettings.csrfProtection !== networkSettings.csrfProtection ||
+      this.networkSettings.trustProxy !== networkSettings.trustProxy ||
+      this.networkSettings.proxy.enabled !== networkSettings.proxy.enabled ||
+      this.networkSettings.forceIpv4First !== networkSettings.forceIpv4First
     );
   }
 }

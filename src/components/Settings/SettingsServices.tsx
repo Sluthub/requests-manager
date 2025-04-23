@@ -6,12 +6,16 @@ import Button from '@app/components/Common/Button';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import Modal from '@app/components/Common/Modal';
 import PageTitle from '@app/components/Common/PageTitle';
+import OverrideRuleModal from '@app/components/Settings/OverrideRule/OverrideRuleModal';
+import OverrideRuleTiles from '@app/components/Settings/OverrideRule/OverrideRuleTiles';
 import RadarrModal from '@app/components/Settings/RadarrModal';
 import SonarrModal from '@app/components/Settings/SonarrModal';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { Transition } from '@headlessui/react';
 import { PencilIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/solid';
+import type OverrideRule from '@server/entity/OverrideRule';
+import type { OverrideRuleResultsResponse } from '@server/interfaces/api/overrideRuleInterfaces';
 import type { RadarrSettings, SonarrSettings } from '@server/lib/settings';
 import { Fragment, useState } from 'react';
 import { useIntl } from 'react-intl';
@@ -41,6 +45,10 @@ const messages = defineMessages('components.Settings', {
   mediaTypeMovie: 'movie',
   mediaTypeSeries: 'series',
   deleteServer: 'Delete {serverType} Server',
+  overrideRules: 'Override Rules',
+  overrideRulesDescription:
+    'Override rules allow you to specify properties that will be replaced if a request matches the rule.',
+  addrule: 'New Override Rule',
 });
 
 interface ServerInstanceProps {
@@ -56,6 +64,33 @@ interface ServerInstanceProps {
   onEdit: () => void;
   onDelete: () => void;
 }
+
+export interface DVRTestResponse {
+  profiles: {
+    id: number;
+    name: string;
+  }[];
+  rootFolders: {
+    id: number;
+    path: string;
+  }[];
+  tags: {
+    id: number;
+    label: string;
+  }[];
+  urlBase?: string;
+}
+
+export type RadarrTestResponse = DVRTestResponse;
+
+export type SonarrTestResponse = DVRTestResponse & {
+  languageProfiles:
+    | {
+        id: number;
+        name: string;
+      }[]
+    | null;
+};
 
 const ServerInstance = ({
   name,
@@ -84,6 +119,8 @@ const ServerInstance = ({
             <h3 className="truncate font-medium leading-5 text-white">
               <a
                 href={serviceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="transition duration-300 hover:text-white hover:underline"
               >
                 {name}
@@ -112,6 +149,8 @@ const ServerInstance = ({
             </span>
             <a
               href={internalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               className="transition duration-300 hover:text-white hover:underline"
             >
               {internalUrl}
@@ -124,7 +163,12 @@ const ServerInstance = ({
             {profileName}
           </p>
         </div>
-        <a href={serviceUrl} className="opacity-50 hover:opacity-100">
+        <a
+          href={serviceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="opacity-50 hover:opacity-100"
+        >
           {isSonarr ? (
             <SonarrLogo className="h-10 w-10 flex-shrink-0" />
           ) : (
@@ -170,6 +214,8 @@ const SettingsServices = () => {
     error: sonarrError,
     mutate: revalidateSonarr,
   } = useSWR<SonarrSettings[]>('/api/v1/settings/sonarr');
+  const { data: rules, mutate: revalidate } =
+    useSWR<OverrideRuleResultsResponse>('/api/v1/overrideRule');
   const [editRadarrModal, setEditRadarrModal] = useState<{
     open: boolean;
     radarr: RadarrSettings | null;
@@ -192,6 +238,13 @@ const SettingsServices = () => {
     open: false,
     type: 'radarr',
     serverId: null,
+  });
+  const [overrideRuleModal, setOverrideRuleModal] = useState<{
+    open: boolean;
+    rule: OverrideRule | null;
+  }>({
+    open: false,
+    rule: null,
   });
 
   const deleteServer = async () => {
@@ -230,7 +283,10 @@ const SettingsServices = () => {
       {editRadarrModal.open && (
         <RadarrModal
           radarr={editRadarrModal.radarr}
-          onClose={() => setEditRadarrModal({ open: false, radarr: null })}
+          onClose={() => {
+            if (!overrideRuleModal.open)
+              setEditRadarrModal({ open: false, radarr: null });
+          }}
           onSave={() => {
             revalidateRadarr();
             mutate('/api/v1/settings/public');
@@ -241,7 +297,10 @@ const SettingsServices = () => {
       {editSonarrModal.open && (
         <SonarrModal
           sonarr={editSonarrModal.sonarr}
-          onClose={() => setEditSonarrModal({ open: false, sonarr: null })}
+          onClose={() => {
+            if (!overrideRuleModal.open)
+              setEditSonarrModal({ open: false, sonarr: null });
+          }}
           onSave={() => {
             revalidateSonarr();
             mutate('/api/v1/settings/public');
@@ -444,6 +503,60 @@ const SettingsServices = () => {
           </>
         )}
       </div>
+      <div className="mt-10 mb-6">
+        <h3 className="heading">
+          {intl.formatMessage(messages.overrideRules)}
+        </h3>
+        <p className="description">
+          {intl.formatMessage(messages.overrideRulesDescription, {
+            serverType: 'Sonarr',
+          })}
+        </p>
+      </div>
+      <div className="section">
+        <ul className="grid max-w-6xl grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+          {rules && radarrData && sonarrData && (
+            <OverrideRuleTiles
+              rules={rules}
+              radarrServices={radarrData}
+              sonarrServices={sonarrData}
+              setOverrideRuleModal={setOverrideRuleModal}
+              revalidate={revalidate}
+            />
+          )}
+          <li className="min-h-[8rem] rounded-lg border-2 border-dashed border-gray-400 shadow sm:min-h-[11rem]">
+            <div className="flex h-full w-full items-center justify-center">
+              <Button
+                buttonType="ghost"
+                disabled={!radarrData?.length && !sonarrData?.length}
+                onClick={() =>
+                  setOverrideRuleModal({
+                    open: true,
+                    rule: null,
+                  })
+                }
+              >
+                <PlusIcon />
+                <span>{intl.formatMessage(messages.addrule)}</span>
+              </Button>
+            </div>
+          </li>
+        </ul>
+      </div>
+      {overrideRuleModal.open && radarrData && sonarrData && (
+        <OverrideRuleModal
+          rule={overrideRuleModal.rule}
+          onClose={() => {
+            setOverrideRuleModal({
+              open: false,
+              rule: null,
+            });
+            revalidate();
+          }}
+          radarrServices={radarrData}
+          sonarrServices={sonarrData}
+        />
+      )}
     </>
   );
 };

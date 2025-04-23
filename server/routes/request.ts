@@ -94,6 +94,7 @@ requestRoutes.get<Record<string, unknown>, RequestResultsResponse>(
       }
 
       let sortFilter: string;
+      let sortDirection: 'ASC' | 'DESC';
 
       switch (req.query.sort) {
         case 'modified':
@@ -101,6 +102,14 @@ requestRoutes.get<Record<string, unknown>, RequestResultsResponse>(
           break;
         default:
           sortFilter = 'request.id';
+      }
+
+      switch (req.query.sortDirection) {
+        case 'asc':
+          sortDirection = 'ASC';
+          break;
+        default:
+          sortDirection = 'DESC';
       }
 
       let query = getRepository(MediaRequest)
@@ -113,7 +122,7 @@ requestRoutes.get<Record<string, unknown>, RequestResultsResponse>(
           requestStatus: statusFilter,
         })
         .andWhere(
-          '((request.is4k = 0 AND media.status IN (:...mediaStatus)) OR (request.is4k = 1 AND media.status4k IN (:...mediaStatus)))',
+          '((request.is4k = false AND media.status IN (:...mediaStatus)) OR (request.is4k = true AND media.status4k IN (:...mediaStatus)))',
           {
             mediaStatus: mediaStatusFilter,
           }
@@ -142,7 +151,7 @@ requestRoutes.get<Record<string, unknown>, RequestResultsResponse>(
       }
 
       const [requests, requestCount] = await query
-        .orderBy(sortFilter, 'DESC')
+        .orderBy(sortFilter, sortDirection)
         .take(pageSize)
         .skip(skip)
         .getManyAndCount();
@@ -159,7 +168,7 @@ requestRoutes.get<Record<string, unknown>, RequestResultsResponse>(
 
           return {
             id: sonarrSetting.id,
-            profiles: await sonarr.getProfiles(),
+            profiles: await sonarr.getProfiles().catch(() => undefined),
           };
         })
       );
@@ -174,18 +183,18 @@ requestRoutes.get<Record<string, unknown>, RequestResultsResponse>(
 
           return {
             id: radarrSetting.id,
-            profiles: await radarr.getProfiles(),
+            profiles: await radarr.getProfiles().catch(() => undefined),
           };
         })
       );
 
       // add profile names to the media requests, with undefined if not found
-      const requestsWithProfileNames = requests.map((r) => {
+      let mappedRequests = requests.map((r) => {
         switch (r.type) {
           case MediaType.MOVIE: {
             const profileName = radarrServers
               .find((serverr) => serverr.id === r.serverId)
-              ?.profiles.find((profile) => profile.id === r.profileId)?.name;
+              ?.profiles?.find((profile) => profile.id === r.profileId)?.name;
 
             return {
               ...r,
@@ -197,11 +206,41 @@ requestRoutes.get<Record<string, unknown>, RequestResultsResponse>(
               ...r,
               profileName: sonarrServers
                 .find((serverr) => serverr.id === r.serverId)
-                ?.profiles.find((profile) => profile.id === r.profileId)?.name,
+                ?.profiles?.find((profile) => profile.id === r.profileId)?.name,
             };
           }
         }
       });
+
+      // add canRemove prop if user has permission
+      if (req.user?.hasPermission(Permission.MANAGE_REQUESTS)) {
+        mappedRequests = mappedRequests.map((r) => {
+          switch (r.type) {
+            case MediaType.MOVIE: {
+              return {
+                ...r,
+                // check if the radarr server for this request is configured
+                canRemove: radarrServers.some(
+                  (server) =>
+                    server.id ===
+                    (r.is4k ? r.media.serviceId4k : r.media.serviceId)
+                ),
+              };
+            }
+            case MediaType.TV: {
+              return {
+                ...r,
+                // check if the sonarr server for this request is configured
+                canRemove: sonarrServers.some(
+                  (server) =>
+                    server.id ===
+                    (r.is4k ? r.media.serviceId4k : r.media.serviceId)
+                ),
+              };
+            }
+          }
+        });
+      }
 
       return res.status(200).json({
         pageInfo: {
@@ -210,7 +249,7 @@ requestRoutes.get<Record<string, unknown>, RequestResultsResponse>(
           results: requestCount,
           page: Math.ceil(skip / pageSize) + 1,
         },
-        results: requestsWithProfileNames,
+        results: mappedRequests,
       });
     } catch (e) {
       next({ status: 500, message: e.message });

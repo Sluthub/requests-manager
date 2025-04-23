@@ -15,6 +15,7 @@ import { checkUser, isAuthenticated } from '@server/middleware/auth';
 import { mapWatchProviderDetails } from '@server/models/common';
 import { mapProductionCompany } from '@server/models/Movie';
 import { mapNetwork } from '@server/models/Tv';
+import overrideRuleRoutes from '@server/routes/overrideRule';
 import settingsRoutes from '@server/routes/settings';
 import watchlistRoutes from '@server/routes/watchlist';
 import {
@@ -54,7 +55,7 @@ router.get<unknown, StatusResponse>('/status', async (req, res) => {
   let commitsBehind = 0;
 
   if (currentVersion.startsWith('develop-') && commitTag !== 'local') {
-    const commits = await githubApi.getOverseerrCommits();
+    const commits = await githubApi.getJellyseerrCommits();
 
     if (commits.length) {
       const filteredCommits = commits.filter(
@@ -73,7 +74,7 @@ router.get<unknown, StatusResponse>('/status', async (req, res) => {
       }
     }
   } else if (commitTag !== 'local') {
-    const releases = await githubApi.getOverseerrReleases();
+    const releases = await githubApi.getJellyseerrReleases();
 
     if (releases.length) {
       const latestVersion = releases[0];
@@ -160,6 +161,11 @@ router.use('/service', isAuthenticated(), serviceRoutes);
 router.use('/issue', isAuthenticated(), issueRoutes);
 router.use('/issueComment', isAuthenticated(), issueCommentRoutes);
 router.use('/auth', authRoutes);
+router.use(
+  '/overrideRule',
+  isAuthenticated(Permission.ADMIN),
+  overrideRuleRoutes
+);
 
 router.get('/regions', isAuthenticated(), async (req, res, next) => {
   const tmdb = new TheMovieDb();
@@ -397,7 +403,7 @@ router.get('/watchproviders/tv', async (req, res, next) => {
 
 router.get('/', (_req, res) => {
   return res.status(200).json({
-    api: 'Overseerr API',
+    api: 'Jellyseerr API',
     version: '1.0',
   });
 });

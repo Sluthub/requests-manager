@@ -25,7 +25,7 @@ import StatusBadge from '@app/components/StatusBadge';
 import useDeepLinks from '@app/hooks/useDeepLinks';
 import useLocale from '@app/hooks/useLocale';
 import useSettings from '@app/hooks/useSettings';
-import { Permission, useUser } from '@app/hooks/useUser';
+import { Permission, UserType, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import ErrorPage from '@app/pages/_error';
 import { sortCrewPriority } from '@app/utils/creditHelpers';
@@ -38,14 +38,14 @@ import {
   ExclamationTriangleIcon,
   EyeSlashIcon,
   FilmIcon,
+  MinusCircleIcon,
   PlayIcon,
+  StarIcon,
   TicketIcon,
 } from '@heroicons/react/24/outline';
 import {
   ChevronDoubleDownIcon,
   ChevronDoubleUpIcon,
-  MinusCircleIcon,
-  StarIcon,
 } from '@heroicons/react/24/solid';
 import { type RatingResponse } from '@server/api/ratings';
 import { IssueStatus } from '@server/constants/issue';
@@ -102,7 +102,7 @@ const messages = defineMessages('components.MovieDetails', {
   watchlistSuccess: '<strong>{title}</strong> added to watchlist successfully!',
   watchlistDeleted:
     '<strong>{title}</strong> Removed from watchlist successfully!',
-  watchlistError: 'Something went wrong try again.',
+  watchlistError: 'Something went wrong. Please try again.',
   removefromwatchlist: 'Remove From Watchlist',
   addtowatchlist: 'Add To Watchlist',
 });
@@ -190,7 +190,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
     })
   ) {
     mediaLinks.push({
-      text: getAvalaibleMediaServerName(),
+      text: getAvailableMediaServerName(),
       url: plexUrl,
       svg: <PlayIcon />,
     });
@@ -204,7 +204,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
     })
   ) {
     mediaLinks.push({
-      text: getAvalaible4kMediaServerName(),
+      text: getAvailable4kMediaServerName(),
       url: plexUrl4k,
       svg: <PlayIcon />,
     });
@@ -222,14 +222,14 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
     });
   }
 
-  const region = user?.settings?.region
-    ? user.settings.region
-    : settings.currentSettings.region
-    ? settings.currentSettings.region
+  const discoverRegion = user?.settings?.discoverRegion
+    ? user.settings.discoverRegion
+    : settings.currentSettings.discoverRegion
+    ? settings.currentSettings.discoverRegion
     : 'US';
 
   const releases = data.releases.results.find(
-    (r) => r.iso_3166_1 === region
+    (r) => r.iso_3166_1 === discoverRegion
   )?.release_dates;
 
   // Release date types:
@@ -282,11 +282,17 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
     );
   }
 
+  const streamingRegion = user?.settings?.streamingRegion
+    ? user.settings.streamingRegion
+    : settings.currentSettings.streamingRegion
+    ? settings.currentSettings.streamingRegion
+    : 'US';
   const streamingProviders =
-    data?.watchProviders?.find((provider) => provider.iso_3166_1 === region)
-      ?.flatrate ?? [];
+    data?.watchProviders?.find(
+      (provider) => provider.iso_3166_1 === streamingRegion
+    )?.flatrate ?? [];
 
-  function getAvalaibleMediaServerName() {
+  function getAvailableMediaServerName() {
     if (settings.currentSettings.mediaServerType === MediaServerType.EMBY) {
       return intl.formatMessage(messages.play, { mediaServerName: 'Emby' });
     }
@@ -298,7 +304,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
     return intl.formatMessage(messages.play, { mediaServerName: 'Sluthub' });
   }
 
-  function getAvalaible4kMediaServerName() {
+  function getAvailable4kMediaServerName() {
     if (settings.currentSettings.mediaServerType === MediaServerType.EMBY) {
       return intl.formatMessage(messages.play, { mediaServerName: 'Emby' });
     }
@@ -499,7 +505,7 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
             src={
               data.posterPath
                 ? `https://image.tmdb.org/t/p/w600_and_h900_bestv2${data.posterPath}`
-                : '/images/overseerr_poster_not_found.png'
+                : '/images/jellyseerr_poster_not_found.png'
             }
             alt=""
             sizes="100vw"
@@ -584,47 +590,48 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
                   buttonSize={'md'}
                   onClick={() => setShowBlacklistModal(true)}
                 >
-                  <EyeSlashIcon className={'h-3'} />
+                  <EyeSlashIcon />
                 </Button>
               </Tooltip>
             )}
-          {data?.mediaInfo?.status !== MediaStatus.BLACKLISTED && (
-            <>
-              {toggleWatchlist ? (
-                <Tooltip content={intl.formatMessage(messages.addtowatchlist)}>
-                  <Button
-                    buttonType={'ghost'}
-                    className="z-40 mr-2"
-                    buttonSize={'md'}
-                    onClick={onClickWatchlistBtn}
+          {data?.mediaInfo?.status !== MediaStatus.BLACKLISTED &&
+            user?.userType !== UserType.PLEX && (
+              <>
+                {toggleWatchlist ? (
+                  <Tooltip
+                    content={intl.formatMessage(messages.addtowatchlist)}
                   >
-                    {isUpdating ? (
-                      <Spinner className="h-3" />
-                    ) : (
-                      <StarIcon className={'h-3 text-amber-300'} />
-                    )}
-                  </Button>
-                </Tooltip>
-              ) : (
-                <Tooltip
-                  content={intl.formatMessage(messages.removefromwatchlist)}
-                >
-                  <Button
-                    className="z-40 mr-2"
-                    buttonSize={'md'}
-                    onClick={onClickDeleteWatchlistBtn}
+                    <Button
+                      buttonType={'ghost'}
+                      className="z-40 mr-2"
+                      buttonSize={'md'}
+                      onClick={onClickWatchlistBtn}
+                    >
+                      {isUpdating ? (
+                        <Spinner />
+                      ) : (
+                        <StarIcon className={'text-amber-300'} />
+                      )}
+                    </Button>
+                  </Tooltip>
+                ) : (
+                  <Tooltip
+                    content={intl.formatMessage(messages.removefromwatchlist)}
                   >
-                    {isUpdating ? (
-                      <Spinner className="h-3" />
-                    ) : (
-                      <MinusCircleIcon className={'h-3'} />
-                    )}
-                  </Button>
-                </Tooltip>
-              )}
-            </>
-          )}
-          <PlayButton links={mediaLinks} />
+                    <Button
+                      className="z-40 mr-2"
+                      buttonSize={'md'}
+                      onClick={onClickDeleteWatchlistBtn}
+                    >
+                      {isUpdating ? <Spinner /> : <MinusCircleIcon />}
+                    </Button>
+                  </Tooltip>
+                )}
+              </>
+            )}
+          <div className="z-20">
+            <PlayButton links={mediaLinks} />
+          </div>
           <RequestButton
             mediaType="movie"
             media={data.mediaInfo}
@@ -774,13 +781,13 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
           <div className="media-facts">
             {(!!data.voteCount ||
               (ratingData?.rt?.criticsRating &&
-                !!ratingData?.rt?.criticsScore) ||
+                typeof ratingData?.rt?.criticsScore === 'number') ||
               (ratingData?.rt?.audienceRating &&
                 !!ratingData?.rt?.audienceScore) ||
               ratingData?.imdb?.criticsScore) && (
               <div className="media-ratings">
                 {ratingData?.rt?.criticsRating &&
-                  !!ratingData?.rt?.criticsScore && (
+                  typeof ratingData?.rt?.criticsScore === 'number' && (
                     <Tooltip
                       content={intl.formatMessage(messages.rtcriticsscore)}
                     >
@@ -1057,14 +1064,26 @@ const MovieDetails = ({ movie }: MovieDetailsProps) => {
               </div>
             )}
             {!!streamingProviders.length && (
-              <div className="media-fact">
+              <div className="media-fact flex-col gap-1">
                 <span>{intl.formatMessage(messages.streamingproviders)}</span>
-                <span className="media-fact-value">
+                <span className="media-fact-value flex flex-row flex-wrap gap-5">
                   {streamingProviders.map((p) => {
                     return (
-                      <span className="block" key={`provider-${p.id}`}>
-                        {p.name}
-                      </span>
+                      <Tooltip content={p.name}>
+                        <span
+                          className="opacity-50 transition duration-300 hover:opacity-100"
+                          key={`provider-${p.id}`}
+                        >
+                          <CachedImage
+                            type="tmdb"
+                            src={'https://image.tmdb.org/t/p/w45/' + p.logoPath}
+                            alt={p.name}
+                            width={32}
+                            height={32}
+                            className="rounded-md"
+                          />
+                        </span>
+                      </Tooltip>
                     );
                   })}
                 </span>

@@ -10,6 +10,7 @@ export interface BaseSearchResult<T> {
 }
 
 interface BaseMedia {
+  id: number;
   mediaType: string;
   mediaInfo?: {
     status: MediaStatus;
@@ -79,8 +80,11 @@ const useDiscover = <
     },
     {
       initialSize: 3,
+      revalidateFirstPage: false,
     }
   );
+
+  const resultIds: Set<number> = new Set<number>();
 
   const isLoadingInitialData = !data && !error;
   const isLoadingMore =
@@ -94,7 +98,18 @@ const useDiscover = <
     setSize(size + 1);
   };
 
-  let titles = (data ?? []).reduce((a, v) => [...a, ...v.results], [] as T[]);
+  let titles = (data ?? []).reduce((a, v) => {
+    const results: T[] = [];
+
+    for (const result of v.results) {
+      if (!resultIds.has(result.id)) {
+        resultIds.add(result.id);
+        results.push(result);
+      }
+    }
+
+    return [...a, ...results];
+  }, [] as T[]);
 
   if (settings.currentSettings.hideAvailable && hideAvailable) {
     titles = titles.filter(

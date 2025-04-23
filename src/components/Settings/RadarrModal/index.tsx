@@ -1,5 +1,6 @@
 import Modal from '@app/components/Common/Modal';
 import SensitiveInput from '@app/components/Common/SensitiveInput';
+import type { RadarrTestResponse } from '@app/components/Settings/SettingsServices';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { Transition } from '@headlessui/react';
@@ -71,22 +72,6 @@ const messages = defineMessages('components.Settings.RadarrModal', {
   released: 'Released',
 });
 
-interface TestResponse {
-  profiles: {
-    id: number;
-    name: string;
-  }[];
-  rootFolders: {
-    id: number;
-    path: string;
-  }[];
-  tags: {
-    id: number;
-    label: string;
-  }[];
-  urlBase?: string;
-}
-
 interface RadarrModalProps {
   radarr: RadarrSettings | null;
   onClose: () => void;
@@ -99,11 +84,12 @@ const RadarrModal = ({ onClose, radarr, onSave }: RadarrModalProps) => {
   const { addToast } = useToasts();
   const [isValidated, setIsValidated] = useState(radarr ? true : false);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResponse, setTestResponse] = useState<TestResponse>({
+  const [testResponse, setTestResponse] = useState<RadarrTestResponse>({
     profiles: [],
     rootFolders: [],
     tags: [],
   });
+
   const RadarrSettingsSchema = Yup.object().shape({
     name: Yup.string().required(
       intl.formatMessage(messages.validationNameRequired)
@@ -130,7 +116,10 @@ const RadarrModal = ({ onClose, radarr, onSave }: RadarrModalProps) => {
       intl.formatMessage(messages.validationMinimumAvailabilityRequired)
     ),
     externalUrl: Yup.string()
-      .url(intl.formatMessage(messages.validationApplicationUrl))
+      .matches(
+        /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}(\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&/=]*))?$/i,
+        intl.formatMessage(messages.validationApplicationUrl)
+      )
       .test(
         'no-trailing-slash',
         intl.formatMessage(messages.validationApplicationUrlTrailingSlash),
@@ -393,6 +382,11 @@ const RadarrModal = ({ onClose, radarr, onSave }: RadarrModalProps) => {
                         id="name"
                         name="name"
                         type="text"
+                        autoComplete="off"
+                        data-form-type="other"
+                        data-1pignore="true"
+                        data-lpignore="true"
+                        data-bwignore="true"
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           setIsValidated(false);
                           setFieldValue('name', e.target.value);
@@ -486,7 +480,6 @@ const RadarrModal = ({ onClose, radarr, onSave }: RadarrModalProps) => {
                         as="field"
                         id="apiKey"
                         name="apiKey"
-                        autoComplete="one-time-code"
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                           setIsValidated(false);
                           setFieldValue('apiKey', e.target.value);

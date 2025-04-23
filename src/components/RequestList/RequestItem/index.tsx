@@ -5,6 +5,7 @@ import ConfirmButton from '@app/components/Common/ConfirmButton';
 import RequestModal from '@app/components/RequestModal';
 import StatusBadge from '@app/components/StatusBadge';
 import useDeepLinks from '@app/hooks/useDeepLinks';
+import useSettings from '@app/hooks/useSettings';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
@@ -19,6 +20,7 @@ import {
 import { MediaRequestStatus } from '@server/constants/media';
 import type { MediaRequest } from '@server/entity/MediaRequest';
 import type { NonFunctionProperties } from '@server/interfaces/api/common';
+import type { RequestResultsResponse } from '@server/interfaces/api/requestInterfaces';
 import type { MovieDetails } from '@server/models/Movie';
 import type { TvDetails } from '@server/models/Tv';
 import Link from 'next/link';
@@ -26,7 +28,7 @@ import { useState } from 'react';
 import { useInView } from 'react-intersection-observer';
 import { FormattedRelativeTime, useIntl } from 'react-intl';
 import { useToasts } from 'react-toast-notifications';
-import useSWR from 'swr';
+import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages('components.RequestList.RequestItem', {
   seasons: '{seasonCount, plural, one {Season} other {Seasons}}',
@@ -68,6 +70,7 @@ const RequestItemError = ({
     });
     if (!res.ok) throw new Error();
     revalidateList();
+    mutate('/api/v1/request/count');
   };
 
   const { mediaUrl: plexUrl, mediaUrl4k: plexUrl4k } = useDeepLinks({
@@ -289,11 +292,12 @@ const RequestItemError = ({
 };
 
 interface RequestItemProps {
-  request: NonFunctionProperties<MediaRequest> & { profileName?: string };
+  request: RequestResultsResponse['results'][number];
   revalidateList: () => void;
 }
 
 const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
+  const settings = useSettings();
   const { ref, inView } = useInView({
     triggerOnce: true,
   });
@@ -332,6 +336,7 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
 
     if (data) {
       revalidate();
+      mutate('/api/v1/request/count');
     }
   };
 
@@ -342,10 +347,12 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
     if (!res.ok) throw new Error();
 
     revalidateList();
+    mutate('/api/v1/request/count');
   };
 
   const deleteMediaFile = async () => {
     if (request.media) {
+      // we don't check if the response is ok here because there may be no file to delete
       await fetch(`/api/v1/media/${request.media.id}/file`, {
         method: 'DELETE',
       });
@@ -450,7 +457,7 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
                 src={
                   title.posterPath
                     ? `https://image.tmdb.org/t/p/w600_and_h900_bestv2${title.posterPath}`
-                    : '/images/overseerr_poster_not_found.png'
+                    : '/images/jellyseerr_poster_not_found.png'
                 }
                 alt=""
                 sizes="100vw"
@@ -481,9 +488,11 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
                   <span className="card-field-name">
                     {intl.formatMessage(messages.seasons, {
                       seasonCount:
-                        title.seasons.filter(
-                          (season) => season.seasonNumber !== 0
-                        ).length === request.seasons.length
+                        (settings.currentSettings.enableSpecialEpisodes
+                          ? title.seasons.length
+                          : title.seasons.filter(
+                              (season) => season.seasonNumber !== 0
+                            ).length) === request.seasons.length
                           ? 0
                           : request.seasons.length,
                     })}
@@ -491,7 +500,11 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
                   <div className="hide-scrollbar flex flex-nowrap overflow-x-scroll">
                     {request.seasons.map((season) => (
                       <span key={`season-${season.id}`} className="mr-2">
-                        <Badge>{season.seasonNumber}</Badge>
+                        <Badge>
+                          {season.seasonNumber === 0
+                            ? intl.formatMessage(globalMessages.specials)
+                            : season.seasonNumber}
+                        </Badge>
                       </span>
                     ))}
                   </div>
@@ -694,18 +707,20 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
                   <TrashIcon />
                   <span>{intl.formatMessage(messages.deleterequest)}</span>
                 </ConfirmButton>
-                <ConfirmButton
-                  onClick={() => deleteMediaFile()}
-                  confirmText={intl.formatMessage(globalMessages.areyousure)}
-                  className="w-full"
-                >
-                  <TrashIcon />
-                  <span>
-                    {intl.formatMessage(messages.removearr, {
-                      arr: request.type === 'movie' ? 'Radarr' : 'Sonarr',
-                    })}
-                  </span>
-                </ConfirmButton>
+                {request.canRemove && (
+                  <ConfirmButton
+                    onClick={() => deleteMediaFile()}
+                    confirmText={intl.formatMessage(globalMessages.areyousure)}
+                    className="w-full"
+                  >
+                    <TrashIcon />
+                    <span>
+                      {intl.formatMessage(messages.removearr, {
+                        arr: request.type === 'movie' ? 'Radarr' : 'Sonarr',
+                      })}
+                    </span>
+                  </ConfirmButton>
+                )}
               </>
             )}
           {requestData.status === MediaRequestStatus.PENDING &&
