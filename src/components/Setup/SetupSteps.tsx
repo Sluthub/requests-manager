@@ -31,9 +31,8 @@ const SetupSteps = ({
           )}
         </div>
         <p
-          className={`text-sm font-medium leading-5 ${
-            active ? 'text-white' : 'text-indigo-200'
-          }`}
+          className={`text-sm font-medium leading-5 ${active ? 'text-white' : 'text-indigo-200'
+            }`}
         >
           {description}
         </p>
