@@ -191,9 +191,6 @@ components:
         csrfProtection:
           type: boolean
           example: false
-        forceIpv4First:
-          type: boolean
-          example: false
         trustProxy:
           type: boolean
           example: true
@@ -4242,6 +4239,12 @@ paths:
             type: string
             nullable: true
             example: dune
+        - in: query
+          name: filter
+          schema:
+            type: string
+            enum: [all, manual, blacklistedTags]
+            default: manual
       responses:
         '200':
           description: Blacklisted items returned
