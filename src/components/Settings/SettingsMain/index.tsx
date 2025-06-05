@@ -13,6 +13,7 @@ import useLocale from '@app/hooks/useLocale';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
+import { isValidURL } from '@app/utils/urlValidationHelper';
 import { ArrowDownOnSquareIcon } from '@heroicons/react/24/outline';
 import { ArrowPathIcon } from '@heroicons/react/24/solid';
 import type { UserSettingsGeneralResponse } from '@server/interfaces/api/userSettingsInterfaces';
@@ -45,11 +46,16 @@ const messages = defineMessages('components.Settings.SettingsMain', {
     'The "Process Blacklisted Tags" job will blacklist this many pages into each sort. Larger numbers will create a more accurate blacklist, but use more space.',
   streamingRegion: 'Streaming Region',
   streamingRegionTip: 'Show streaming sites by regional availability',
+  hideBlacklisted: 'Hide Blacklisted Items',
+  hideBlacklistedTip:
+    'Hide blacklisted items from discover pages for all users with the "Manage Blacklist" permission',
   toastApiKeySuccess: 'New API key generated successfully!',
   toastApiKeyFailure: 'Something went wrong while generating a new API key.',
   toastSettingsSuccess: 'Settings saved successfully!',
   toastSettingsFailure: 'Something went wrong while saving settings.',
   hideAvailable: 'Hide Available Media',
+  hideAvailableTip:
+    'Hide available media from the discover pages but not search results',
   cacheImages: 'Enable Image Caching',
   cacheImagesTip:
     'Cache externally sourced images (requires a significant amount of disk space)',
@@ -59,6 +65,9 @@ const messages = defineMessages('components.Settings.SettingsMain', {
   partialRequestsEnabled: 'Allow Partial Series Requests',
   enableSpecialEpisodes: 'Allow Special Episodes Requests',
   locale: 'Display Language',
+  youtubeUrl: 'YouTube URL',
+  validationUrl: 'You must provide a valid URL',
+  validationUrlTrailingSlash: 'URL must not end in a trailing slash',
 });
 
 const SettingsMain = () => {
@@ -80,9 +89,10 @@ const SettingsMain = () => {
       intl.formatMessage(messages.validationApplicationTitle)
     ),
     applicationUrl: Yup.string()
-      .matches(
-        /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}(\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&/=]*))?$/i,
-        intl.formatMessage(messages.validationApplicationUrl)
+      .test(
+        'valid-url',
+        intl.formatMessage(messages.validationApplicationUrl),
+        isValidURL
       )
       .test(
         'no-trailing-slash',
@@ -99,6 +109,13 @@ const SettingsMain = () => {
         'lte-250',
         'Number must be less than or equal to 250.',
         (value) => (value ?? 0) <= 250
+      ),
+    youtubeUrl: Yup.string()
+      .url(intl.formatMessage(messages.validationUrl))
+      .test(
+        'no-trailing-slash',
+        intl.formatMessage(messages.validationUrlTrailingSlash),
+        (value) => !value || !value.endsWith('/')
       ),
   });
 
@@ -145,6 +162,7 @@ const SettingsMain = () => {
             applicationTitle: data?.applicationTitle,
             applicationUrl: data?.applicationUrl,
             hideAvailable: data?.hideAvailable,
+            hideBlacklisted: data?.hideBlacklisted,
             locale: data?.locale ?? 'en',
             discoverRegion: data?.discoverRegion,
             originalLanguage: data?.originalLanguage,
@@ -154,6 +172,7 @@ const SettingsMain = () => {
             partialRequestsEnabled: data?.partialRequestsEnabled,
             enableSpecialEpisodes: data?.enableSpecialEpisodes,
             cacheImages: data?.cacheImages,
+            youtubeUrl: data?.youtubeUrl,
           }}
           enableReinitialize
           validationSchema={MainSettingsSchema}
@@ -163,6 +182,7 @@ const SettingsMain = () => {
                 applicationTitle: values.applicationTitle,
                 applicationUrl: values.applicationUrl,
                 hideAvailable: values.hideAvailable,
+                hideBlacklisted: values.hideBlacklisted,
                 locale: values.locale,
                 discoverRegion: values.discoverRegion,
                 streamingRegion: values.streamingRegion,
@@ -172,6 +192,7 @@ const SettingsMain = () => {
                 partialRequestsEnabled: values.partialRequestsEnabled,
                 enableSpecialEpisodes: values.enableSpecialEpisodes,
                 cacheImages: values.cacheImages,
+                youtubeUrl: values.youtubeUrl,
               });
               mutate('/api/v1/settings/public');
               mutate('/api/v1/status');
@@ -428,6 +449,9 @@ const SettingsMain = () => {
                       {intl.formatMessage(messages.hideAvailable)}
                     </span>
                     <SettingsBadge badgeType="experimental" />
+                    <span className="label-tip">
+                      {intl.formatMessage(messages.hideAvailableTip)}
+                    </span>
                   </label>
                   <div className="form-input-area">
                     <Field
@@ -436,6 +460,29 @@ const SettingsMain = () => {
                       name="hideAvailable"
                       onChange={() => {
                         setFieldValue('hideAvailable', !values.hideAvailable);
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="hideBlacklisted" className="checkbox-label">
+                    <span className="mr-2">
+                      {intl.formatMessage(messages.hideBlacklisted)}
+                    </span>
+                    <span className="label-tip">
+                      {intl.formatMessage(messages.hideBlacklistedTip)}
+                    </span>
+                  </label>
+                  <div className="form-input-area">
+                    <Field
+                      type="checkbox"
+                      id="hideBlacklisted"
+                      name="hideBlacklisted"
+                      onChange={() => {
+                        setFieldValue(
+                          'hideBlacklisted',
+                          !values.hideBlacklisted
+                        );
                       }}
                     />
                   </div>
@@ -484,6 +531,26 @@ const SettingsMain = () => {
                         );
                       }}
                     />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="youtubeUrl" className="text-label">
+                    {intl.formatMessage(messages.youtubeUrl)}
+                  </label>
+                  <div className="form-input-area">
+                    <div className="form-input-field">
+                      <Field
+                        id="youtubeUrl"
+                        name="youtubeUrl"
+                        type="text"
+                        inputMode="url"
+                      />
+                    </div>
+                    {errors.youtubeUrl &&
+                      touched.youtubeUrl &&
+                      typeof errors.youtubeUrl === 'string' && (
+                        <div className="error">{errors.youtubeUrl}</div>
+                      )}
                   </div>
                 </div>
                 <div className="actions">

@@ -144,18 +144,32 @@ const CoreApp: Omit<NextAppComponentType, 'origGetInitialProps'> = ({
       clearAppBadge?: () => Promise<void>;
     };
 
-    if ('setAppBadge' in navigator) {
-      if (
-        !router.pathname.match(/(login|setup|resetpassword)/) &&
-        hasPermission(Permission.ADMIN)
-      ) {
-        requestsCount().then((data) =>
-          newNavigator?.setAppBadge?.(data.pending)
-        );
-      } else {
-        newNavigator?.clearAppBadge?.();
+    const handleBadgeUpdate = () => {
+      if ('setAppBadge' in newNavigator) {
+        if (
+          !router.pathname.match(/(login|setup|resetpassword)/) &&
+          hasPermission(Permission.ADMIN)
+        ) {
+          requestsCount().then((data) => {
+            if (data.pending > 0) {
+              newNavigator.setAppBadge?.(data.pending);
+            } else {
+              newNavigator.clearAppBadge?.();
+            }
+          });
+        } else {
+          newNavigator.clearAppBadge?.();
+        }
       }
-    }
+    };
+
+    handleBadgeUpdate();
+
+    window.addEventListener('focus', handleBadgeUpdate);
+
+    return () => {
+      window.removeEventListener('focus', handleBadgeUpdate);
+    };
   }, [hasPermission, router.pathname]);
 
   if (router.pathname.match(/(login|setup|resetpassword)/)) {
@@ -217,6 +231,7 @@ CoreApp.getInitialProps = async (initialProps) => {
     applicationTitle: '',
     applicationUrl: '',
     hideAvailable: false,
+    hideBlacklisted: false,
     movie4kEnabled: false,
     series4kEnabled: false,
     localLogin: true,
@@ -233,6 +248,7 @@ CoreApp.getInitialProps = async (initialProps) => {
     locale: 'en',
     emailEnabled: false,
     newPlexLogin: true,
+    youtubeUrl: '',
   };
 
   if (ctx.res) {
