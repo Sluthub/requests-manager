@@ -140,6 +140,7 @@ export interface MainSettings {
 
 export interface NetworkSettings {
   csrfProtection: boolean;
+  forceIpv4First: boolean;
   trustProxy: boolean;
   proxy: ProxySettings;
 }
@@ -215,13 +216,6 @@ export interface NotificationAgentEmail extends NotificationAgentConfig {
   };
 }
 
-export interface NotificationAgentLunaSea extends NotificationAgentConfig {
-  options: {
-    webhookUrl: string;
-    profileName?: string;
-  };
-}
-
 export interface NotificationAgentTelegram extends NotificationAgentConfig {
   options: {
     botUsername?: string;
@@ -293,7 +287,6 @@ interface NotificationAgents {
   email: NotificationAgentEmail;
   gotify: NotificationAgentGotify;
   ntfy: NotificationAgentNtfy;
-  lunasea: NotificationAgentLunaSea;
   pushbullet: NotificationAgentPushbullet;
   pushover: NotificationAgentPushover;
   slack: NotificationAgentSlack;
@@ -429,13 +422,6 @@ class Settings {
               enableMentions: true,
             },
           },
-          lunasea: {
-            enabled: false,
-            types: 0,
-            options: {
-              webhookUrl: '',
-            },
-          },
           slack: {
             enabled: false,
             types: 0,
@@ -544,6 +530,7 @@ class Settings {
       },
       network: {
         csrfProtection: false,
+        forceIpv4First: false,
         trustProxy: false,
         proxy: {
           enabled: false,

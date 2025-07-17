@@ -9,7 +9,6 @@ import notificationManager from '@server/lib/notifications';
 import DiscordAgent from '@server/lib/notifications/agents/discord';
 import EmailAgent from '@server/lib/notifications/agents/email';
 import GotifyAgent from '@server/lib/notifications/agents/gotify';
-import LunaSeaAgent from '@server/lib/notifications/agents/lunasea';
 import NtfyAgent from '@server/lib/notifications/agents/ntfy';
 import PushbulletAgent from '@server/lib/notifications/agents/pushbullet';
 import PushoverAgent from '@server/lib/notifications/agents/pushover';
@@ -28,6 +27,7 @@ import { getAppVersion } from '@server/utils/appVersion';
 import createCustomProxyAgent from '@server/utils/customProxyAgent';
 import restartFlag from '@server/utils/restartFlag';
 import { getClientIp } from '@supercharge/request-ip';
+import axios from 'axios';
 import { TypeormStore } from 'connect-typeorm/out';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
@@ -35,6 +35,8 @@ import express from 'express';
 import * as OpenApiValidator from 'express-openapi-validator';
 import type { Store } from 'express-session';
 import session from 'express-session';
+import http from 'http';
+import https from 'https';
 import next from 'next';
 import path from 'path';
 import swaggerUi from 'swagger-ui-express';
@@ -73,6 +75,11 @@ app
     const settings = await getSettings().load();
     restartFlag.initializeSettings(settings);
 
+    if (settings.network.forceIpv4First) {
+      axios.defaults.httpAgent = new http.Agent({ family: 4 });
+      axios.defaults.httpsAgent = new https.Agent({ family: 4 });
+    }
+
     // Register HTTP proxy
     if (settings.network.proxy.enabled) {
       await createCustomProxyAgent(settings.network.proxy);
@@ -105,7 +112,6 @@ app
       new EmailAgent(),
       new GotifyAgent(),
       new NtfyAgent(),
-      new LunaSeaAgent(),
       new PushbulletAgent(),
       new PushoverAgent(),
       new SlackAgent(),
