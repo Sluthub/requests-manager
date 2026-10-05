@@ -16,7 +16,7 @@ jobs:
     container: node:22-alpine
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Pnpm Setup
         uses: pnpm/action-setup@v4
         with:
@@ -59,7 +59,7 @@ jobs:
       digest-arm64: ${{ steps.set_outputs.outputs.digest-arm64 }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to Docker Hub
