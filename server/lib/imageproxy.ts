@@ -271,14 +271,17 @@ class ImageProxy {
 
       const buffer = Buffer.from(response.data, 'binary');
 
-      const contentType = response.headers['content-type'] || '';
+      const contentTypeHeader = response.headers['content-type'];
+      const contentType =
+        typeof contentTypeHeader === 'string' ? contentTypeHeader : '';
       const extension = (mime.getExtension(contentType) || '').replace(
         /[^\w-]/g,
         ''
       );
 
+      const cacheControl = response.headers['cache-control'];
       let maxAge = Number(
-        (response.headers['cache-control'] ?? '0').split('=')[1]
+        (typeof cacheControl === 'string' ? cacheControl : '0').split('=')[1]
       );
 
       if (!maxAge) maxAge = 86400;

@@ -80,6 +80,13 @@ class PreparedEmail extends Email {
       );
     }
 
+    // email-templates' declarations still describe the older Nodemailer class.
+    // Its runtime only needs sendMail; keep the prepared transport and plugins.
+    const emailTransport = {
+      host: settings.options.smtpHost,
+      sendMail: transport.sendMail.bind(transport),
+    };
+
     super({
       message: {
         from: {
@@ -88,7 +95,7 @@ class PreparedEmail extends Email {
         },
       },
       send: true,
-      transport: transport,
+      transport: emailTransport,
       preview: false,
     });
   }
