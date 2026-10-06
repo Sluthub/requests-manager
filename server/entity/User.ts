@@ -5,15 +5,15 @@ import { Watchlist } from '@server/entity/Watchlist';
 import type { QuotaResponse } from '@server/interfaces/api/userInterfaces';
 import PreparedEmail from '@server/lib/email';
 import type { PermissionCheckOptions } from '@server/lib/permissions';
-import { hasPermission, Permission } from '@server/lib/permissions';
+import { Permission, hasPermission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
+import { DbAwareColumn, resolveDbType } from '@server/utils/DbColumnHelper';
 import { AfterDate } from '@server/utils/dateHelpers';
-import { DbAwareColumn } from '@server/utils/DbColumnHelper';
 import bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
+import { nanoid } from 'nanoid';
 import path from 'path';
-import { default as generatePassword } from 'secure-random-password';
 import {
   AfterLoad,
   Column,
@@ -23,6 +23,7 @@ import {
   OneToOne,
   PrimaryGeneratedColumn,
   RelationCount,
+  UpdateDateColumn,
 } from 'typeorm';
 import Issue from './Issue';
 import { MediaRequest } from './MediaRequest';
@@ -39,7 +40,18 @@ export class User {
     return users.map((u) => u.filter(showFiltered));
   }
 
-  static readonly filteredFields: string[] = ['email', 'plexId'];
+  static readonly filteredFields: string[] = [
+    'email',
+    'plexId',
+    'password',
+    'resetPasswordGuid',
+    'jellyfinDeviceId',
+    'jellyfinAuthToken',
+    'plexToken',
+    'settings',
+  ];
+
+  static readonly serializationExcludedFields: string[] = ['settings'];
 
   public displayName: string;
 
@@ -70,7 +82,7 @@ export class User {
   @Column({ nullable: true, select: false })
   public resetPasswordGuid?: string;
 
-  @Column({ type: 'date', nullable: true })
+  @DbAwareColumn({ type: 'datetime', nullable: true })
   public recoveryLinkExpirationDate?: Date | null;
 
   @Column({ type: 'integer', default: UserType.PLEX })
@@ -140,10 +152,9 @@ export class User {
   @DbAwareColumn({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   public createdAt: Date;
 
-  @DbAwareColumn({
-    type: 'datetime',
+  @UpdateDateColumn({
+    type: resolveDbType('datetime'),
     default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
   })
   public updatedAt: Date;
 
@@ -162,6 +173,16 @@ export class User {
     );
 
     return filtered;
+  }
+
+  // settings is eager-loaded and would otherwise ride along into every nested User response
+  public toJSON(): Partial<User> {
+    return Object.assign(
+      {},
+      ...(Object.keys(this) as (keyof User)[])
+        .filter((k) => !User.serializationExcludedFields.includes(k))
+        .map((k) => ({ [k]: this[k] }))
+    );
   }
 
   public hasPermission(
@@ -187,8 +208,8 @@ export class User {
   }
 
   public async generatePassword(): Promise<void> {
-    const password = generatePassword.randomPassword({ length: 16 });
-    this.setPassword(password);
+    const password = nanoid(16);
+    await this.setPassword(password);
 
     const { applicationTitle, applicationUrl } = getSettings().main;
     try {
@@ -271,7 +292,7 @@ export class User {
     });
 
     const movieQuotaLimit = !canBypass
-      ? this.movieQuotaLimit ?? defaultQuotas.movie.quotaLimit
+      ? (this.movieQuotaLimit ?? defaultQuotas.movie.quotaLimit)
       : 0;
     const movieQuotaDays = this.movieQuotaDays ?? defaultQuotas.movie.quotaDays;
 
@@ -287,15 +308,16 @@ export class User {
             requestedBy: {
               id: this.id,
             },
-            createdAt: AfterDate(movieDate),
+            ...(movieQuotaDays ? { createdAt: AfterDate(movieDate) } : {}),
             type: MediaType.MOVIE,
             status: Not(MediaRequestStatus.DECLINED),
+            ignoreQuota: false,
           },
         })
       : 0;
 
     const tvQuotaLimit = !canBypass
-      ? this.tvQuotaLimit ?? defaultQuotas.tv.quotaLimit
+      ? (this.tvQuotaLimit ?? defaultQuotas.tv.quotaLimit)
       : 0;
     const tvQuotaDays = this.tvQuotaDays ?? defaultQuotas.tv.quotaDays;
 
@@ -305,23 +327,30 @@ export class User {
       tvDate.setDate(tvDate.getDate() - tvQuotaDays);
     }
     const tvQuotaStartDate = tvDate.toJSON();
+    const tvQuotaUsedQuery = requestRepository
+      .createQueryBuilder('request')
+      .leftJoin('request.requestedBy', 'requestedBy')
+      .where('request.type = :requestType', {
+        requestType: MediaType.TV,
+      })
+      .andWhere('requestedBy.id = :userId', {
+        userId: this.id,
+      })
+      .andWhere('request.status != :declinedStatus', {
+        declinedStatus: MediaRequestStatus.DECLINED,
+      });
+
+    if (tvQuotaDays) {
+      tvQuotaUsedQuery.andWhere('request.createdAt > :date', {
+        date: tvQuotaStartDate,
+      });
+    }
+
     const tvQuotaUsed = tvQuotaLimit
       ? (
-          await requestRepository
-            .createQueryBuilder('request')
-            .leftJoin('request.seasons', 'seasons')
-            .leftJoin('request.requestedBy', 'requestedBy')
-            .where('request.type = :requestType', {
-              requestType: MediaType.TV,
-            })
-            .andWhere('requestedBy.id = :userId', {
-              userId: this.id,
-            })
-            .andWhere('request.createdAt > :date', {
-              date: tvQuotaStartDate,
-            })
-            .andWhere('request.status != :declinedStatus', {
-              declinedStatus: MediaRequestStatus.DECLINED,
+          await tvQuotaUsedQuery
+            .andWhere('request.ignoreQuota = :ignoreQuota', {
+              ignoreQuota: false,
             })
             .addSelect((subQuery) => {
               return subQuery
@@ -342,10 +371,9 @@ export class User {
         remaining: movieQuotaLimit
           ? Math.max(0, movieQuotaLimit - movieQuotaUsed)
           : undefined,
-        restricted:
+        restricted: !!(
           movieQuotaLimit && movieQuotaLimit - movieQuotaUsed <= 0
-            ? true
-            : false,
+        ),
       },
       tv: {
         days: tvQuotaDays,
@@ -354,8 +382,7 @@ export class User {
         remaining: tvQuotaLimit
           ? Math.max(0, tvQuotaLimit - tvQuotaUsed)
           : undefined,
-        restricted:
-          tvQuotaLimit && tvQuotaLimit - tvQuotaUsed <= 0 ? true : false,
+        restricted: !!(tvQuotaLimit && tvQuotaLimit - tvQuotaUsed <= 0),
       },
     };
   }

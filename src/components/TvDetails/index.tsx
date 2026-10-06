@@ -4,7 +4,7 @@ import RTFresh from '@app/assets/rt_fresh.svg';
 import RTRotten from '@app/assets/rt_rotten.svg';
 import Spinner from '@app/assets/spinner.svg';
 import TmdbLogo from '@app/assets/tmdb_logo.svg';
-import BlacklistModal from '@app/components/BlacklistModal';
+import BlocklistModal from '@app/components/BlocklistModal';
 import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
@@ -28,13 +28,20 @@ import Season from '@app/components/TvDetails/Season';
 import useDeepLinks from '@app/hooks/useDeepLinks';
 import useLocale from '@app/hooks/useLocale';
 import useSettings from '@app/hooks/useSettings';
+import useToasts from '@app/hooks/useToasts';
 import { Permission, UserType, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
-import Error from '@app/pages/_error';
+import ErrorPage from '@app/pages/_error';
 import { sortCrewPriority } from '@app/utils/creditHelpers';
 import defineMessages from '@app/utils/defineMessages';
 import { refreshIntervalHelper } from '@app/utils/refreshIntervalHelper';
-import { Disclosure, Transition } from '@headlessui/react';
+import {
+  Disclosure,
+  DisclosureButton,
+  DisclosurePanel,
+  Transition,
+} from '@headlessui/react';
+import { ChevronDownIcon } from '@heroicons/react/24/outline';
 import {
   ArrowRightCircleIcon,
   CogIcon,
@@ -44,8 +51,7 @@ import {
   MinusCircleIcon,
   PlayIcon,
   StarIcon,
-} from '@heroicons/react/24/outline';
-import { ChevronDownIcon } from '@heroicons/react/24/solid';
+} from '@heroicons/react/24/solid';
 import type { RTRating } from '@server/api/rating/rottentomatoes';
 import { ANIME_KEYWORD_ID } from '@server/api/themoviedb/constants';
 import { IssueStatus } from '@server/constants/issue';
@@ -55,16 +61,15 @@ import {
   MediaType,
 } from '@server/constants/media';
 import { MediaServerType } from '@server/constants/server';
-import type { Crew } from '@server/models/common';
 import type { TvDetails as TvDetailsType } from '@server/models/Tv';
+import type { Crew } from '@server/models/common';
 import axios from 'axios';
 import { countries } from 'country-flag-icons';
 import 'country-flag-icons/3x2/flags.css';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR from 'swr';
 
 const messages = defineMessages('components.TvDetails', {
@@ -118,17 +123,15 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
   const intl = useIntl();
   const { locale } = useLocale();
   const [showRequestModal, setShowRequestModal] = useState(false);
-  const [showManager, setShowManager] = useState(
-    router.query.manage == '1' ? true : false
-  );
+  const [showManager, setShowManager] = useState(false);
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
   const [toggleWatchlist, setToggleWatchlist] = useState<boolean>(
     !tv?.onUserWatchlist
   );
-  const [isBlacklistUpdating, setIsBlacklistUpdating] =
+  const [isBlocklistUpdating, setIsBlocklistUpdating] =
     useState<boolean>(false);
-  const [showBlacklistModal, setShowBlacklistModal] = useState(false);
+  const [showBlocklistModal, setShowBlocklistModal] = useState(false);
   const { addToast } = useToasts();
 
   const {
@@ -156,11 +159,17 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
   );
 
   useEffect(() => {
-    setShowManager(router.query.manage == '1' ? true : false);
-  }, [router.query.manage]);
+    if (router.query.manage === '1') {
+      setShowManager(true);
+      router.replace({
+        pathname: router.pathname,
+        query: { tvId: router.query.tvId },
+      });
+    }
+  }, [router, router.query.manage]);
 
-  const closeBlacklistModal = useCallback(
-    () => setShowBlacklistModal(false),
+  const closeBlocklistModal = useCallback(
+    () => setShowBlocklistModal(false),
     []
   );
 
@@ -176,7 +185,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
   }
 
   if (!data) {
-    return <Error statusCode={404} />;
+    return <ErrorPage statusCode={404} />;
   }
 
   const mediaLinks: PlayButtonLink[] = [];
@@ -214,7 +223,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
     .pop();
   const trailerUrl =
     trailerVideo?.site === 'YouTube' &&
-      settings.currentSettings.youtubeUrl != ''
+    settings.currentSettings.youtubeUrl != ''
       ? `${settings.currentSettings.youtubeUrl}${trailerVideo?.key}`
       : trailerVideo?.url;
 
@@ -266,12 +275,12 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
           </Link>
         ))
         .reduce((prev, curr) => (
-          <>
+          <Fragment key={`${prev.key}-${curr.key}`}>
             {intl.formatMessage(globalMessages.delimitedlist, {
               a: prev,
               b: curr,
             })}
-          </>
+          </Fragment>
         ))
     );
   }
@@ -296,7 +305,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
         (season) =>
           (season[is4k ? 'status4k' : 'status'] === MediaStatus.AVAILABLE ||
             season[is4k ? 'status4k' : 'status'] ===
-            MediaStatus.PARTIALLY_AVAILABLE ||
+              MediaStatus.PARTIALLY_AVAILABLE ||
             season[is4k ? 'status4k' : 'status'] === MediaStatus.PROCESSING) &&
           !requestedSeasons.includes(season.seasonNumber)
       )
@@ -305,19 +314,26 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
     return [...requestedSeasons, ...availableSeasons];
   };
 
-  const showHasSpecials = data.seasons.some(
-    (season) =>
-      season.seasonNumber === 0 &&
-      settings.currentSettings.enableSpecialEpisodes
-  );
+  // Mirrors the season list the request modal offers, so the two agree.
+  const requestableSeasons = data.seasons
+    .filter(
+      (season) =>
+        season.episodeCount !== 0 &&
+        (settings.currentSettings.enableSpecialEpisodes ||
+          season.seasonNumber !== 0)
+    )
+    .map((season) => season.seasonNumber);
 
-  const isComplete =
-    (showHasSpecials ? seasonCount + 1 : seasonCount) <=
-    getAllRequestedSeasons(false).length;
+  const isSeasonSetComplete = (is4k: boolean) => {
+    const requested = getAllRequestedSeasons(is4k);
+    return requestableSeasons.every((seasonNumber) =>
+      requested.includes(seasonNumber)
+    );
+  };
 
-  const is4kComplete =
-    (showHasSpecials ? seasonCount + 1 : seasonCount) <=
-    getAllRequestedSeasons(true).length;
+  const isComplete = isSeasonSetComplete(false);
+
+  const is4kComplete = isSeasonSetComplete(true);
 
   const streamingRegion = user?.settings?.streamingRegion
     ? user.settings.streamingRegion
@@ -350,7 +366,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
       return intl.formatMessage(messages.play4k, { mediaServerName: 'Plex' });
     }
 
-    return intl.formatMessage(messages.play4k, { mediaServerName: 'Sluthub' });
+    return intl.formatMessage(messages.play, { mediaServerName: 'Sluthub' });
   }
 
   const onClickWatchlistBtn = async (): Promise<void> => {
@@ -388,7 +404,9 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
     setIsUpdating(true);
 
     try {
-      await axios.delete('/api/v1/watchlist/' + tv?.id);
+      await axios.delete(
+        `/api/v1/watchlist/${tv?.id}?mediaType=${MediaType.TV}`
+      );
 
       addToast(
         <span>
@@ -413,10 +431,10 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
   };
 
   const onClickHideItemBtn = async (): Promise<void> => {
-    setIsBlacklistUpdating(true);
+    setIsBlocklistUpdating(true);
 
     try {
-      const res = await axios.post('/api/v1/blacklist', {
+      const res = await axios.post('/api/v1/blocklist', {
         tmdbId: tv?.id,
         mediaType: 'tv',
         title: tv?.name,
@@ -426,7 +444,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
       if (res.status === 201) {
         addToast(
           <span>
-            {intl.formatMessage(globalMessages.blacklistSuccess, {
+            {intl.formatMessage(globalMessages.blocklistSuccess, {
               title: tv?.name,
               strong: (msg: React.ReactNode) => <strong>{msg}</strong>,
             })}
@@ -440,7 +458,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
       if (e?.response?.status === 412) {
         addToast(
           <span>
-            {intl.formatMessage(globalMessages.blacklistDuplicateError, {
+            {intl.formatMessage(globalMessages.blocklistDuplicateError, {
               title: tv?.name,
               strong: (msg: React.ReactNode) => <strong>{msg}</strong>,
             })}
@@ -448,18 +466,18 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
           { appearance: 'info', autoDismiss: true }
         );
       } else {
-        addToast(intl.formatMessage(globalMessages.blacklistError), {
+        addToast(intl.formatMessage(globalMessages.blocklistError), {
           appearance: 'error',
           autoDismiss: true,
         });
       }
     }
 
-    setIsBlacklistUpdating(false);
-    closeBlacklistModal();
+    setIsBlocklistUpdating(false);
+    closeBlocklistModal();
   };
 
-  const showHideButton = hasPermission([Permission.MANAGE_BLACKLIST], {
+  const showHideButton = hasPermission([Permission.MANAGE_BLOCKLIST], {
     type: 'or',
   });
 
@@ -490,13 +508,13 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
         </div>
       )}
       <PageTitle title={data.name} />
-      <BlacklistModal
+      <BlocklistModal
         tmdbId={data.id}
         type="tv"
-        show={showBlacklistModal}
-        onCancel={closeBlacklistModal}
+        show={showBlocklistModal}
+        onCancel={closeBlocklistModal}
         onComplete={onClickHideItemBtn}
-        isUpdating={isBlacklistUpdating}
+        isUpdating={isBlocklistUpdating}
       />
       <IssueModal
         onCancel={() => setShowIssueModal(false)}
@@ -519,7 +537,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
         mediaType="tv"
         onClose={() => {
           setShowManager(false);
-          router.push({
+          router.replace({
             pathname: router.pathname,
             query: { tvId: router.query.tvId },
           });
@@ -534,7 +552,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
             src={
               data.posterPath
                 ? `https://image.tmdb.org/t/p/w600_and_h900_bestv2${data.posterPath}`
-                : '/images/jellyseerr_poster_not_found.png'
+                : '/images/seerr_poster_not_found.png'
             }
             alt=""
             sizes="100vw"
@@ -595,11 +613,11 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
               seriesAttributes
                 .map((t, k) => <span key={k}>{t}</span>)
                 .reduce((prev, curr) => (
-                  <>
+                  <Fragment key={`${prev.key}-${curr.key}`}>
                     {prev}
                     <span>|</span>
                     {curr}
-                  </>
+                  </Fragment>
                 ))}
           </span>
         </div>
@@ -609,21 +627,21 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
             data?.mediaInfo?.status !== MediaStatus.AVAILABLE &&
             data?.mediaInfo?.status !== MediaStatus.PARTIALLY_AVAILABLE &&
             data?.mediaInfo?.status !== MediaStatus.PENDING &&
-            data?.mediaInfo?.status !== MediaStatus.BLACKLISTED && (
+            data?.mediaInfo?.status !== MediaStatus.BLOCKLISTED && (
               <Tooltip
-                content={intl.formatMessage(globalMessages.addToBlacklist)}
+                content={intl.formatMessage(globalMessages.addToBlocklist)}
               >
                 <Button
                   buttonType={'ghost'}
                   className="z-40 mr-2"
                   buttonSize={'md'}
-                  onClick={() => setShowBlacklistModal(true)}
+                  onClick={() => setShowBlocklistModal(true)}
                 >
                   <EyeSlashIcon />
                 </Button>
               </Tooltip>
             )}
-          {data?.mediaInfo?.status !== MediaStatus.BLACKLISTED &&
+          {data?.mediaInfo?.status !== MediaStatus.BLOCKLISTED &&
             user?.userType !== UserType.PLEX && (
               <>
                 {toggleWatchlist ? (
@@ -677,7 +695,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
               }) &&
               (data.mediaInfo?.status4k === MediaStatus.AVAILABLE ||
                 data?.mediaInfo?.status4k ===
-                MediaStatus.PARTIALLY_AVAILABLE))) &&
+                  MediaStatus.PARTIALLY_AVAILABLE))) &&
             hasPermission(
               [Permission.CREATE_ISSUES, Permission.MANAGE_ISSUES],
               {
@@ -737,15 +755,15 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
               <ul className="media-crew">
                 {(data.createdBy.length > 0
                   ? [
-                    ...data.createdBy.map(
-                      (person): Partial<Crew> => ({
-                        id: person.id,
-                        job: 'Creator',
-                        name: person.name,
-                      })
-                    ),
-                    ...sortedCrew,
-                  ]
+                      ...data.createdBy.map(
+                        (person): Partial<Crew> => ({
+                          id: person.id,
+                          job: 'Creator',
+                          name: person.name,
+                        })
+                      ),
+                      ...sortedCrew,
+                    ]
                   : sortedCrew
                 )
                   .slice(0, 6)
@@ -848,19 +866,20 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                   <Disclosure key={`season-discoslure-${season.seasonNumber}`}>
                     {({ open }) => (
                       <>
-                        <Disclosure.Button
-                          className={`mt-2 flex w-full items-center justify-between space-x-2 border-gray-700 bg-gray-800 px-4 py-2 text-gray-200 ${open
-                            ? 'rounded-t-md border-t border-l border-r'
-                            : 'rounded-md border'
-                            }`}
+                        <DisclosureButton
+                          className={`mt-2 flex w-full items-center justify-between space-x-2 border-gray-700 bg-gray-800 px-4 py-2 text-gray-200 ${
+                            open
+                              ? 'rounded-t-md border-l border-r border-t'
+                              : 'rounded-md border'
+                          }`}
                         >
                           <div className="flex flex-1 items-center space-x-2 text-lg">
                             <span>
                               {season.seasonNumber === 0
                                 ? intl.formatMessage(globalMessages.specials)
                                 : intl.formatMessage(messages.seasonnumber, {
-                                  seasonNumber: season.seasonNumber,
-                                })}
+                                    seasonNumber: season.seasonNumber,
+                                  })}
                             </span>
                             <Badge badgeType="dark">
                               {intl.formatMessage(messages.episodeCount, {
@@ -873,50 +892,50 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                             mSeason?.status === MediaStatus.PROCESSING ||
                             (request?.status === MediaRequestStatus.APPROVED &&
                               mSeason?.status === MediaStatus.DELETED)) && (
-                              <>
-                                <div className="hidden md:flex">
-                                  <Badge badgeType="primary">
-                                    {intl.formatMessage(globalMessages.requested)}
-                                  </Badge>
-                                </div>
-                                <div className="flex md:hidden">
-                                  <StatusBadgeMini
-                                    status={MediaStatus.PROCESSING}
-                                  />
-                                </div>
-                              </>
-                            )}
+                            <>
+                              <div className="hidden md:flex">
+                                <Badge badgeType="primary">
+                                  {intl.formatMessage(globalMessages.requested)}
+                                </Badge>
+                              </div>
+                              <div className="flex md:hidden">
+                                <StatusBadgeMini
+                                  status={MediaStatus.PROCESSING}
+                                />
+                              </div>
+                            </>
+                          )}
                           {((!mSeason &&
                             request?.status === MediaRequestStatus.PENDING) ||
                             mSeason?.status === MediaStatus.PENDING) && (
-                              <>
-                                <div className="hidden md:flex">
-                                  <Badge badgeType="warning">
-                                    {intl.formatMessage(globalMessages.pending)}
-                                  </Badge>
-                                </div>
-                                <div className="flex md:hidden">
-                                  <StatusBadgeMini status={MediaStatus.PENDING} />
-                                </div>
-                              </>
-                            )}
+                            <>
+                              <div className="hidden md:flex">
+                                <Badge badgeType="warning">
+                                  {intl.formatMessage(globalMessages.pending)}
+                                </Badge>
+                              </div>
+                              <div className="flex md:hidden">
+                                <StatusBadgeMini status={MediaStatus.PENDING} />
+                              </div>
+                            </>
+                          )}
                           {mSeason?.status ===
                             MediaStatus.PARTIALLY_AVAILABLE && (
-                              <>
-                                <div className="hidden md:flex">
-                                  <Badge badgeType="success">
-                                    {intl.formatMessage(
-                                      globalMessages.partiallyavailable
-                                    )}
-                                  </Badge>
-                                </div>
-                                <div className="flex md:hidden">
-                                  <StatusBadgeMini
-                                    status={MediaStatus.PARTIALLY_AVAILABLE}
-                                  />
-                                </div>
-                              </>
-                            )}
+                            <>
+                              <div className="hidden md:flex">
+                                <Badge badgeType="success">
+                                  {intl.formatMessage(
+                                    globalMessages.partiallyavailable
+                                  )}
+                                </Badge>
+                              </div>
+                              <div className="flex md:hidden">
+                                <StatusBadgeMini
+                                  status={MediaStatus.PARTIALLY_AVAILABLE}
+                                />
+                              </div>
+                            </>
+                          )}
                           {mSeason?.status === MediaStatus.AVAILABLE && (
                             <>
                               <div className="hidden md:flex">
@@ -948,7 +967,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                             )}
                           {((!mSeason4k &&
                             request4k?.status ===
-                            MediaRequestStatus.APPROVED) ||
+                              MediaRequestStatus.APPROVED) ||
                             mSeason4k?.status4k === MediaStatus.PROCESSING ||
                             (request4k?.status ===
                               MediaRequestStatus.APPROVED &&
@@ -1057,11 +1076,13 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                               </>
                             )}
                           <ChevronDownIcon
-                            className={`${open ? 'rotate-180' : ''
-                              } h-6 w-6 text-gray-500`}
+                            className={`${
+                              open ? 'rotate-180' : ''
+                            } h-6 w-6 text-gray-500`}
                           />
-                        </Disclosure.Button>
+                        </DisclosureButton>
                         <Transition
+                          as="div"
                           show={open}
                           enter="transition-opacity duration-100 ease-out"
                           enterFrom="opacity-0"
@@ -1072,12 +1093,12 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                           // Not sure why this transition is adding a margin without this here
                           style={{ margin: '0px' }}
                         >
-                          <Disclosure.Panel className="w-full rounded-b-md border-b border-l border-r border-gray-700 px-4 pb-2">
+                          <DisclosurePanel className="w-full rounded-b-md border-b border-l border-r border-gray-700 px-4 pb-2">
                             <Season
                               tvId={data.id}
                               seasonNumber={season.seasonNumber}
                             />
-                          </Disclosure.Panel>
+                          </DisclosurePanel>
                         </Transition>
                       </>
                     )}
@@ -1091,60 +1112,60 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
             {(!!data.voteCount ||
               (ratingData?.criticsRating && !!ratingData?.criticsScore) ||
               (ratingData?.audienceRating && !!ratingData?.audienceScore)) && (
-                <div className="media-ratings">
-                  {ratingData?.criticsRating && !!ratingData?.criticsScore && (
-                    <Tooltip
-                      content={intl.formatMessage(messages.rtcriticsscore)}
+              <div className="media-ratings">
+                {ratingData?.criticsRating && !!ratingData?.criticsScore && (
+                  <Tooltip
+                    content={intl.formatMessage(messages.rtcriticsscore)}
+                  >
+                    <a
+                      href={ratingData.url}
+                      className="media-rating"
+                      target="_blank"
+                      rel="noreferrer"
                     >
-                      <a
-                        href={ratingData.url}
-                        className="media-rating"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {ratingData.criticsRating === 'Rotten' ? (
-                          <RTRotten className="mr-1 w-6" />
-                        ) : (
-                          <RTFresh className="mr-1 w-6" />
-                        )}
-                        <span>{ratingData.criticsScore}%</span>
-                      </a>
-                    </Tooltip>
-                  )}
-                  {ratingData?.audienceRating && !!ratingData?.audienceScore && (
-                    <Tooltip
-                      content={intl.formatMessage(messages.rtaudiencescore)}
+                      {ratingData.criticsRating === 'Rotten' ? (
+                        <RTRotten className="mr-1 w-6" />
+                      ) : (
+                        <RTFresh className="mr-1 w-6" />
+                      )}
+                      <span>{ratingData.criticsScore}%</span>
+                    </a>
+                  </Tooltip>
+                )}
+                {ratingData?.audienceRating && !!ratingData?.audienceScore && (
+                  <Tooltip
+                    content={intl.formatMessage(messages.rtaudiencescore)}
+                  >
+                    <a
+                      href={ratingData.url}
+                      className="media-rating"
+                      target="_blank"
+                      rel="noreferrer"
                     >
-                      <a
-                        href={ratingData.url}
-                        className="media-rating"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {ratingData.audienceRating === 'Spilled' ? (
-                          <RTAudRotten className="mr-1 w-6" />
-                        ) : (
-                          <RTAudFresh className="mr-1 w-6" />
-                        )}
-                        <span>{ratingData.audienceScore}%</span>
-                      </a>
-                    </Tooltip>
-                  )}
-                  {!!data.voteCount && (
-                    <Tooltip content={intl.formatMessage(messages.tmdbuserscore)}>
-                      <a
-                        href={`https://www.themoviedb.org/tv/${data.id}?language=${locale}`}
-                        className="media-rating"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <TmdbLogo className="mr-1 w-6" />
-                        <span>{Math.round(data.voteAverage * 10)}%</span>
-                      </a>
-                    </Tooltip>
-                  )}
-                </div>
-              )}
+                      {ratingData.audienceRating === 'Spilled' ? (
+                        <RTAudRotten className="mr-1 w-6" />
+                      ) : (
+                        <RTAudFresh className="mr-1 w-6" />
+                      )}
+                      <span>{ratingData.audienceScore}%</span>
+                    </a>
+                  </Tooltip>
+                )}
+                {!!data.voteCount && (
+                  <Tooltip content={intl.formatMessage(messages.tmdbuserscore)}>
+                    <a
+                      href={`https://www.themoviedb.org/tv/${data.id}?language=${locale}`}
+                      className="media-rating"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <TmdbLogo className="mr-1 w-6" />
+                      <span>{Math.round(data.voteAverage * 10)}%</span>
+                    </a>
+                  </Tooltip>
+                )}
+              </div>
+            )}
             {data.originalName &&
               data.originalLanguage !== locale.slice(0, 2) && (
                 <div className="media-fact">
@@ -1155,13 +1176,13 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
             {data.keywords.some(
               (keyword) => keyword.id === ANIME_KEYWORD_ID
             ) && (
-                <div className="media-fact">
-                  <span>{intl.formatMessage(messages.showtype)}</span>
-                  <span className="media-fact-value">
-                    {intl.formatMessage(messages.anime)}
-                  </span>
-                </div>
-              )}
+              <div className="media-fact">
+                <span>{intl.formatMessage(messages.showtype)}</span>
+                <span className="media-fact-value">
+                  {intl.formatMessage(messages.anime)}
+                </span>
+              </div>
+            )}
             <div className="media-fact">
               <span>{intl.formatMessage(globalMessages.status)}</span>
               <span className="media-fact-value">{data.status}</span>
@@ -1269,12 +1290,12 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                       </Link>
                     ))
                     .reduce((prev, curr) => (
-                      <>
+                      <Fragment key={`${prev.key}-${curr.key}`}>
                         {intl.formatMessage(globalMessages.delimitedlist, {
                           a: prev,
                           b: curr,
                         })}
-                      </>
+                      </Fragment>
                     ))}
                 </span>
               </div>
@@ -1285,7 +1306,7 @@ const TvDetails = ({ tv }: TvDetailsProps) => {
                 <span className="media-fact-value flex flex-row flex-wrap gap-5">
                   {streamingProviders.map((p) => {
                     return (
-                      <Tooltip content={p.name}>
+                      <Tooltip content={p.name} key={`tooltip-${p.id}`}>
                         <span
                           className="opacity-50 transition duration-300 hover:opacity-100"
                           key={`provider-${p.id}`}

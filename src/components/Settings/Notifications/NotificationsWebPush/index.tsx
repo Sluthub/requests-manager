@@ -1,6 +1,7 @@
 import Alert from '@app/components/Common/Alert';
 import Button from '@app/components/Common/Button';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
+import useToasts from '@app/hooks/useToasts';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { ArrowDownOnSquareIcon, BeakerIcon } from '@heroicons/react/24/outline';
@@ -8,20 +9,20 @@ import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
 import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages(
   'components.Settings.Notifications.NotificationsWebPush',
   {
     agentenabled: 'Enable Agent',
+    embedPoster: 'Embed Poster',
     webpushsettingssaved: 'Web push notification settings saved successfully!',
     webpushsettingsfailed: 'Web push notification settings failed to save.',
     toastWebPushTestSending: 'Sending web push test notification…',
     toastWebPushTestSuccess: 'Web push test notification sent!',
     toastWebPushTestFailed: 'Web push test notification failed to send.',
     httpsRequirement:
-      'In order to receive web push notifications, Jellyseerr must be served over HTTPS.',
+      'In order to receive web push notifications, Seerr must be served over HTTPS.',
   }
 );
 
@@ -55,11 +56,13 @@ const NotificationsWebPush = () => {
       <Formik
         initialValues={{
           enabled: data.enabled,
+          embedPoster: data.embedPoster,
         }}
         onSubmit={async (values) => {
           try {
             await axios.post('/api/v1/settings/notifications/webpush', {
               enabled: values.enabled,
+              embedPoster: values.embedPoster,
               options: {},
             });
             mutate('/api/v1/settings/public');
@@ -67,7 +70,7 @@ const NotificationsWebPush = () => {
               appearance: 'success',
               autoDismiss: true,
             });
-          } catch (e) {
+          } catch {
             addToast(intl.formatMessage(messages.webpushsettingsfailed), {
               appearance: 'error',
               autoDismiss: true,
@@ -77,7 +80,7 @@ const NotificationsWebPush = () => {
           }
         }}
       >
-        {({ isSubmitting }) => {
+        {({ isSubmitting, values }) => {
           const testSettings = async () => {
             setIsTesting(true);
             let toastId: string | undefined;
@@ -94,6 +97,7 @@ const NotificationsWebPush = () => {
               );
               await axios.post('/api/v1/settings/notifications/webpush/test', {
                 enabled: true,
+                embedPoster: values.embedPoster,
                 options: {},
               });
 
@@ -104,7 +108,7 @@ const NotificationsWebPush = () => {
                 autoDismiss: true,
                 appearance: 'success',
               });
-            } catch (e) {
+            } catch {
               if (toastId) {
                 removeToast(toastId);
               }
@@ -126,6 +130,15 @@ const NotificationsWebPush = () => {
                 </label>
                 <div className="form-input-area">
                   <Field type="checkbox" id="enabled" name="enabled" />
+                </div>
+              </div>
+              <div className="form-row">
+                <label htmlFor="embedPoster" className="checkbox-label">
+                  {intl.formatMessage(messages.embedPoster)}
+                  <span className="label-required">*</span>
+                </label>
+                <div className="form-input-area">
+                  <Field type="checkbox" id="embedPoster" name="embedPoster" />
                 </div>
               </div>
               <div className="actions">

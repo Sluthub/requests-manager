@@ -4,7 +4,6 @@ import { User } from '@server/entity/User';
 import ImageProxy from '@server/lib/imageproxy';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
-import { getAppVersion } from '@server/utils/appVersion';
 import { getHostname } from '@server/utils/getHostname';
 import axios from 'axios';
 import { Router } from 'express';
@@ -15,21 +14,9 @@ const router = Router();
 
 let _avatarImageProxy: ImageProxy | null = null;
 
-async function initAvatarImageProxy() {
+function initAvatarImageProxy() {
   if (!_avatarImageProxy) {
-    const userRepository = getRepository(User);
-    const admin = await userRepository.findOne({
-      where: { id: 1 },
-      select: ['id', 'jellyfinUserId', 'jellyfinDeviceId'],
-      order: { id: 'ASC' },
-    });
-    const deviceId = admin?.jellyfinDeviceId || 'BOT_jellyseerr';
-    const authToken = getSettings().jellyfin.apiKey;
-    _avatarImageProxy = new ImageProxy('avatar', '', {
-      headers: {
-        'X-Emby-Authorization': `MediaBrowser Client="Jellyseerr", Device="Jellyseerr", DeviceId="${deviceId}", Version="${getAppVersion()}", Token="${authToken}"`,
-      },
-    });
+    _avatarImageProxy = new ImageProxy('avatar', '');
   }
   return _avatarImageProxy;
 }
@@ -61,7 +48,7 @@ export async function checkAvatarChanged(
       if (headResponse.status !== 200) {
         return { changed: false };
       }
-    } catch (error) {
+    } catch {
       return { changed: false };
     }
 
@@ -84,7 +71,7 @@ export async function checkAvatarChanged(
       return { changed: false, etag: user.avatarETag ?? undefined };
     }
 
-    const avatarImageCache = await initAvatarImageProxy();
+    const avatarImageCache = initAvatarImageProxy();
     await avatarImageCache.clearCachedImage(jellyfinAvatarUrl);
     const imageData = await avatarImageCache.getImage(
       jellyfinAvatarUrl,
@@ -111,20 +98,18 @@ export async function checkAvatarChanged(
   }
 }
 
-router.get('/:jellyfinUserId', async (req, res) => {
+router.get('/:jellyfinUserId', async (req, res, next) => {
+  if (!req.params.jellyfinUserId.match(/^[a-f0-9]{32}$/)) {
+    const mediaServerType = getSettings().main.mediaServerType;
+    return next({
+      status: 400,
+      message: `Provided URL is not ${
+        mediaServerType === MediaServerType.JELLYFIN ? 'a Jellyfin' : 'an Emby'
+      } avatar.`,
+    });
+  }
   try {
-    if (!req.params.jellyfinUserId.match(/^[a-f0-9]{32}$/)) {
-      const mediaServerType = getSettings().main.mediaServerType;
-      throw new Error(
-        `Provided URL is not ${
-          mediaServerType === MediaServerType.JELLYFIN
-            ? 'a Jellyfin'
-            : 'an Emby'
-        } avatar.`
-      );
-    }
-
-    const avatarImageCache = await initAvatarImageProxy();
+    const avatarImageCache = initAvatarImageProxy();
 
     const userEtag = req.headers['if-none-match'];
 
@@ -141,13 +126,16 @@ router.get('/:jellyfinUserId', async (req, res) => {
 
     const jellyfinAvatarUrl = getJellyfinAvatarUrl(req.params.jellyfinUserId);
 
-    let imageData = await avatarImageCache.getImage(
-      jellyfinAvatarUrl,
-      fallbackUrl
-    );
-
-    if (imageData.meta.extension === 'json') {
-      // this is a 404
+    let imageData;
+    if (user?.avatarVersion) {
+      imageData = await avatarImageCache.getImage(
+        jellyfinAvatarUrl,
+        fallbackUrl
+      );
+      if (imageData.meta.extension === 'json') {
+        imageData = await avatarImageCache.getImage(fallbackUrl);
+      }
+    } else {
       imageData = await avatarImageCache.getImage(fallbackUrl);
     }
 
@@ -166,9 +154,14 @@ router.get('/:jellyfinUserId', async (req, res) => {
 
     res.end(imageData.imageBuffer);
   } catch (e) {
-    logger.error('Failed to proxy avatar image', {
-      errorMessage: e.message,
-    });
+    logger.error('Failed to proxy avatar image', { errorMessage: e.message });
+    if (!res.headersSent) {
+      return next({
+        status: 500,
+        message: 'Failed to proxy avatar image.',
+      });
+    }
+    next(e);
   }
 });
 

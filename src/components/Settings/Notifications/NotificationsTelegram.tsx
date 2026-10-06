@@ -2,6 +2,7 @@ import Button from '@app/components/Common/Button';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import SensitiveInput from '@app/components/Common/SensitiveInput';
 import NotificationTypeSelector from '@app/components/NotificationTypeSelector';
+import useToasts from '@app/hooks/useToasts';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { ArrowDownOnSquareIcon, BeakerIcon } from '@heroicons/react/24/outline';
@@ -9,18 +10,17 @@ import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR from 'swr';
 import * as Yup from 'yup';
 
 const messages = defineMessages('components.Settings.Notifications', {
   agentenabled: 'Enable Agent',
+  embedPoster: 'Embed Poster',
   botUsername: 'Bot Username',
   botUsernameTip:
     'Allow users to also start a chat with your bot and configure their own notifications',
   botAPI: 'Bot Authorization Token',
-  botApiTip:
-    '<CreateBotLink>Create a bot</CreateBotLink> for use with Jellyseerr',
+  botApiTip: '<CreateBotLink>Create a bot</CreateBotLink> for use with Seerr',
   chatId: 'Chat ID',
   chatIdTip:
     'Start a chat with your bot, add <GetIdBotLink>@get_id_bot</GetIdBotLink>, and issue the <code>/my_id</code> command',
@@ -53,31 +53,28 @@ const NotificationsTelegram = () => {
   const NotificationsTelegramSchema = Yup.object().shape({
     botAPI: Yup.string().when('enabled', {
       is: true,
-      then: Yup.string()
-        .nullable()
-        .required(intl.formatMessage(messages.validationBotAPIRequired)),
-      otherwise: Yup.string().nullable(),
+      then: (schema) =>
+        schema
+          .nullable()
+          .required(intl.formatMessage(messages.validationBotAPIRequired)),
+      otherwise: (schema) => schema.nullable(),
     }),
     chatId: Yup.string()
       .when(['enabled', 'types'], {
         is: (enabled: boolean, types: number) => enabled && !!types,
-        then: Yup.string()
-          .nullable()
-          .required(intl.formatMessage(messages.validationChatIdRequired)),
-        otherwise: Yup.string().nullable(),
+        then: (schema) =>
+          schema
+            .nullable()
+            .required(intl.formatMessage(messages.validationChatIdRequired)),
+        otherwise: (schema) => schema.nullable(),
       })
       .matches(
         /^-?\d+$/,
         intl.formatMessage(messages.validationChatIdRequired)
       ),
     messageThreadId: Yup.string()
-      .when(['types'], {
-        is: (enabled: boolean, types: number) => enabled && !!types,
-        then: Yup.string()
-          .nullable()
-          .required(intl.formatMessage(messages.validationMessageThreadId)),
-        otherwise: Yup.string().nullable(),
-      })
+      .transform((v) => v || null)
+      .nullable()
       .matches(/^\d+$/, intl.formatMessage(messages.validationMessageThreadId)),
   });
 
@@ -89,6 +86,7 @@ const NotificationsTelegram = () => {
     <Formik
       initialValues={{
         enabled: data?.enabled,
+        embedPoster: data?.embedPoster,
         types: data?.types,
         botUsername: data?.options.botUsername,
         botAPI: data?.options.botAPI,
@@ -101,6 +99,7 @@ const NotificationsTelegram = () => {
         try {
           await axios.post('/api/v1/settings/notifications/telegram', {
             enabled: values.enabled,
+            embedPoster: values.embedPoster,
             types: values.types,
             options: {
               botAPI: values.botAPI,
@@ -115,7 +114,7 @@ const NotificationsTelegram = () => {
             appearance: 'success',
             autoDismiss: true,
           });
-        } catch (e) {
+        } catch {
           addToast(intl.formatMessage(messages.telegramsettingsfailed), {
             appearance: 'error',
             autoDismiss: true,
@@ -167,7 +166,7 @@ const NotificationsTelegram = () => {
               autoDismiss: true,
               appearance: 'success',
             });
-          } catch (e) {
+          } catch {
             if (toastId) {
               removeToast(toastId);
             }
@@ -189,6 +188,14 @@ const NotificationsTelegram = () => {
               </label>
               <div className="form-input-area">
                 <Field type="checkbox" id="enabled" name="enabled" />
+              </div>
+            </div>
+            <div className="form-row">
+              <label htmlFor="embedPoster" className="checkbox-label">
+                {intl.formatMessage(messages.embedPoster)}
+              </label>
+              <div className="form-input-area">
+                <Field type="checkbox" id="embedPoster" name="embedPoster" />
               </div>
             </div>
             <div className="form-row">
@@ -218,7 +225,7 @@ const NotificationsTelegram = () => {
                       </a>
                     ),
                     code: (msg: React.ReactNode) => (
-                      <code className="bg-opacity-50">{msg}</code>
+                      <code className="bg-gray-800/50">{msg}</code>
                     ),
                   })}
                 </span>

@@ -1,10 +1,17 @@
 import Button from '@app/components/Common/Button';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import NotificationTypeSelector from '@app/components/NotificationTypeSelector';
+import SettingsBadge from '@app/components/Settings/SettingsBadge';
+import useToasts from '@app/hooks/useToasts';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { isValidURL } from '@app/utils/urlValidationHelper';
-import { ArrowDownOnSquareIcon, BeakerIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowDownOnSquareIcon,
+  BeakerIcon,
+  PlusIcon,
+  TrashIcon,
+} from '@heroicons/react/24/outline';
 import {
   ArrowPathIcon,
   QuestionMarkCircleIcon,
@@ -15,7 +22,6 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR from 'swr';
 import * as Yup from 'yup';
 
@@ -31,8 +37,10 @@ const defaultPayload = {
   image: '{{image}}',
   '{{media}}': {
     media_type: '{{media_type}}',
+    imdbId: '{{media_imdbid}}',
     tmdbId: '{{media_tmdbid}}',
     tvdbId: '{{media_tvdbid}}',
+    jellyfinMediaId: '{{media_jellyfinMediaId}}',
     status: '{{media_status}}',
     status4k: '{{media_status4k}}',
   },
@@ -41,7 +49,8 @@ const defaultPayload = {
     requestedBy_email: '{{requestedBy_email}}',
     requestedBy_username: '{{requestedBy_username}}',
     requestedBy_avatar: '{{requestedBy_avatar}}',
-    requestedBy_settings_discordId: '{{requestedBy_settings_discordId}}',
+    requestedBy_jellyfinUserId: '{{requestedBy_jellyfinUserId}}',
+    requestedBy_settings_discordIds: '{{requestedBy_settings_discordIds}}',
     requestedBy_settings_telegramChatId:
       '{{requestedBy_settings_telegramChatId}}',
   },
@@ -52,7 +61,7 @@ const defaultPayload = {
     reportedBy_email: '{{reportedBy_email}}',
     reportedBy_username: '{{reportedBy_username}}',
     reportedBy_avatar: '{{reportedBy_avatar}}',
-    reportedBy_settings_discordId: '{{reportedBy_settings_discordId}}',
+    reportedBy_settings_discordIds: '{{reportedBy_settings_discordIds}}',
     reportedBy_settings_telegramChatId:
       '{{reportedBy_settings_telegramChatId}}',
   },
@@ -61,7 +70,7 @@ const defaultPayload = {
     commentedBy_email: '{{commentedBy_email}}',
     commentedBy_username: '{{commentedBy_username}}',
     commentedBy_avatar: '{{commentedBy_avatar}}',
-    commentedBy_settings_discordId: '{{commentedBy_settings_discordId}}',
+    commentedBy_settings_discordIds: '{{commentedBy_settings_discordIds}}',
     commentedBy_settings_telegramChatId:
       '{{commentedBy_settings_telegramChatId}}',
   },
@@ -73,7 +82,22 @@ const messages = defineMessages(
   {
     agentenabled: 'Enable Agent',
     webhookUrl: 'Webhook URL',
+    webhookUrlTip:
+      'Test Notification URL is set to {testUrl} instead of the actual webhook URL.',
+    supportVariables: 'Support URL Variables',
+    supportVariablesTip:
+      'Available variables are documented in the webhook template variables section',
     authheader: 'Authorization Header',
+    customHeaders: 'Custom Headers',
+    customHeadersTip:
+      'Add custom HTTP headers to include with webhook requests',
+    customHeadersAdd: 'Add Header',
+    customHeadersRemove: 'Remove',
+    customHeadersKey: 'Header Name',
+    customHeadersValue: 'Header Value',
+    customHeadersIncomplete: 'All headers must have both name and value',
+    customHeadersAuthConflict:
+      'Cannot use both Authorization Header and custom Authorization header. Please remove one.',
     validationJsonPayloadRequired: 'You must provide a valid JSON payload',
     webhooksettingssaved: 'Webhook notification settings saved successfully!',
     webhooksettingsfailed: 'Webhook notification settings failed to save.',
@@ -103,23 +127,70 @@ const NotificationsWebhook = () => {
     webhookUrl: Yup.string()
       .when('enabled', {
         is: true,
-        then: Yup.string()
-          .nullable()
-          .required(intl.formatMessage(messages.validationWebhookUrl)),
-        otherwise: Yup.string().nullable(),
+        then: (schema) =>
+          schema
+            .nullable()
+            .required(intl.formatMessage(messages.validationWebhookUrl)),
+        otherwise: (schema) => schema.nullable(),
       })
       .test(
         'valid-url',
         intl.formatMessage(messages.validationWebhookUrl),
-        isValidURL
+        function (value) {
+          const { supportVariables } = this.parent;
+          return supportVariables || isValidURL(value);
+        }
       ),
+
+    supportVariables: Yup.boolean(),
+
+    customHeaders: Yup.array()
+      .of(
+        Yup.object().shape({
+          key: Yup.string(),
+          value: Yup.string(),
+        })
+      )
+      .test(
+        'complete-headers',
+        intl.formatMessage(messages.customHeadersIncomplete),
+        function (headers) {
+          if (!headers || headers.length === 0) return true;
+          return headers.every(
+            (header) =>
+              (!header.key || !header.key.trim()) ===
+              (!header.value || !header.value.trim())
+          );
+        }
+      )
+      .test(
+        'auth-conflict',
+        intl.formatMessage(messages.customHeadersAuthConflict),
+        function (headers) {
+          const { authHeader } = this.parent;
+          if (!authHeader || !headers || headers.length === 0) return true;
+
+          const hasCustomAuthHeader = headers.some(
+            (header) =>
+              header.key &&
+              header.value &&
+              header.key.trim().toLowerCase() === 'authorization'
+          );
+
+          return !hasCustomAuthHeader;
+        }
+      ),
+
     jsonPayload: Yup.string()
       .when('enabled', {
         is: true,
-        then: Yup.string()
-          .nullable()
-          .required(intl.formatMessage(messages.validationJsonPayloadRequired)),
-        otherwise: Yup.string().nullable(),
+        then: (schema) =>
+          schema
+            .nullable()
+            .required(
+              intl.formatMessage(messages.validationJsonPayloadRequired)
+            ),
+        otherwise: (schema) => schema.nullable(),
       })
       .test(
         'validate-json',
@@ -128,7 +199,7 @@ const NotificationsWebhook = () => {
           try {
             JSON.parse(value ?? '');
             return true;
-          } catch (e) {
+          } catch {
             return false;
           }
         }
@@ -147,6 +218,8 @@ const NotificationsWebhook = () => {
         webhookUrl: data.options.webhookUrl,
         jsonPayload: data.options.jsonPayload,
         authHeader: data.options.authHeader,
+        customHeaders: data.options.customHeaders ?? [],
+        supportVariables: data.options.supportVariables ?? false,
       }}
       validationSchema={NotificationsWebhookSchema}
       onSubmit={async (values) => {
@@ -156,15 +229,25 @@ const NotificationsWebhook = () => {
             types: values.types,
             options: {
               webhookUrl: values.webhookUrl,
-              jsonPayload: JSON.stringify(values.jsonPayload),
+              jsonPayload: values.jsonPayload,
               authHeader: values.authHeader,
+              customHeaders: (values.customHeaders ?? [])
+                .map((h: { key: string; value: string }) => ({
+                  key: h.key?.trim() ?? '',
+                  value: h.value?.trim() ?? '',
+                }))
+                .filter(
+                  (h: { key: string; value: string }) =>
+                    h.key.length > 0 && h.value.length > 0
+                ),
+              supportVariables: values.supportVariables,
             },
           });
           addToast(intl.formatMessage(messages.webhooksettingssaved), {
             appearance: 'success',
             autoDismiss: true,
           });
-        } catch (e) {
+        } catch {
           addToast(intl.formatMessage(messages.webhooksettingsfailed), {
             appearance: 'error',
             autoDismiss: true,
@@ -213,8 +296,18 @@ const NotificationsWebhook = () => {
               types: values.types,
               options: {
                 webhookUrl: values.webhookUrl,
-                jsonPayload: JSON.stringify(values.jsonPayload),
+                jsonPayload: values.jsonPayload,
                 authHeader: values.authHeader,
+                customHeaders: (values.customHeaders ?? [])
+                  .map((h: { key: string; value: string }) => ({
+                    key: h.key?.trim() ?? '',
+                    value: h.value?.trim() ?? '',
+                  }))
+                  .filter(
+                    (h: { key: string; value: string }) =>
+                      h.key.length > 0 && h.value.length > 0
+                  ),
+                supportVariables: values.supportVariables ?? false,
               },
             });
 
@@ -225,7 +318,7 @@ const NotificationsWebhook = () => {
               autoDismiss: true,
               appearance: 'success',
             });
-          } catch (e) {
+          } catch {
             if (toastId) {
               removeToast(toastId);
             }
@@ -250,9 +343,58 @@ const NotificationsWebhook = () => {
               </div>
             </div>
             <div className="form-row">
+              <label htmlFor="supportVariables" className="checkbox-label">
+                <span className="mr-2">
+                  {intl.formatMessage(messages.supportVariables)}
+                </span>
+                <SettingsBadge badgeType="experimental" />
+                <span className="label-tip">
+                  {intl.formatMessage(messages.supportVariablesTip)}
+                </span>
+              </label>
+              <div className="form-input-area">
+                <Field
+                  type="checkbox"
+                  id="supportVariables"
+                  name="supportVariables"
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setFieldValue('supportVariables', e.target.checked)
+                  }
+                />
+              </div>
+            </div>
+            {values.supportVariables && (
+              <div className="mt-2">
+                <Link
+                  href="https://docs.seerr.dev/using-seerr/notifications/webhook#template-variables"
+                  passHref
+                  legacyBehavior
+                >
+                  <Button
+                    as="a"
+                    buttonSize="sm"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <QuestionMarkCircleIcon />
+                    <span>
+                      {intl.formatMessage(messages.templatevariablehelp)}
+                    </span>
+                  </Button>
+                </Link>
+              </div>
+            )}
+            <div className="form-row">
               <label htmlFor="webhookUrl" className="text-label">
                 {intl.formatMessage(messages.webhookUrl)}
                 <span className="label-required">*</span>
+                {values.supportVariables && (
+                  <div className="label-tip">
+                    {intl.formatMessage(messages.webhookUrlTip, {
+                      testUrl: '/test',
+                    })}
+                  </div>
+                )}
               </label>
               <div className="form-input-area">
                 <div className="form-input-field">
@@ -278,6 +420,86 @@ const NotificationsWebhook = () => {
                 <div className="form-input-field">
                   <Field id="authHeader" name="authHeader" type="text" />
                 </div>
+              </div>
+            </div>
+            <div className="form-row">
+              <label htmlFor="customHeaders" className="text-label">
+                {intl.formatMessage(messages.customHeaders)}
+                <span className="label-tip">
+                  {intl.formatMessage(messages.customHeadersTip)}
+                </span>
+              </label>
+              <div className="form-input-area">
+                <div className="space-y-2">
+                  {values.customHeaders.map(
+                    (header: { key: string; value: string }, index: number) => (
+                      <div key={index} className="flex gap-2">
+                        <div className="flex-1">
+                          <div className="form-input-field">
+                            <Field
+                              name={`customHeaders.${index}.key`}
+                              type="text"
+                              placeholder={intl.formatMessage(
+                                messages.customHeadersKey
+                              )}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          <div className="form-input-field">
+                            <Field
+                              name={`customHeaders.${index}.value`}
+                              type="text"
+                              placeholder={intl.formatMessage(
+                                messages.customHeadersValue
+                              )}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center">
+                          <Button
+                            buttonType="danger"
+                            buttonSize="sm"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              const newHeaders = values.customHeaders.filter(
+                                (
+                                  _: { key: string; value: string },
+                                  i: number
+                                ) => i !== index
+                              );
+                              setFieldValue('customHeaders', newHeaders);
+                            }}
+                            title={intl.formatMessage(
+                              messages.customHeadersRemove
+                            )}
+                          >
+                            <TrashIcon />
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  )}
+                  <Button
+                    buttonType="default"
+                    buttonSize="sm"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setFieldValue('customHeaders', [
+                        ...values.customHeaders,
+                        { key: '', value: '' },
+                      ]);
+                    }}
+                  >
+                    <PlusIcon />
+                    <span>{intl.formatMessage(messages.customHeadersAdd)}</span>
+                  </Button>
+                </div>
+                {errors.customHeaders &&
+                  touched.customHeaders &&
+                  typeof errors.customHeaders === 'string' && (
+                    <div className="error">{errors.customHeaders}</div>
+                  )}
               </div>
             </div>
             <div className="form-row">
@@ -312,7 +534,7 @@ const NotificationsWebhook = () => {
                     <span>{intl.formatMessage(messages.resetPayload)}</span>
                   </Button>
                   <Link
-                    href="https://docs.overseerr.dev/using-overseerr/notifications/webhooks#template-variables"
+                    href="https://docs.seerr.dev/using-seerr/notifications/webhook#template-variables"
                     passHref
                     legacyBehavior
                   >

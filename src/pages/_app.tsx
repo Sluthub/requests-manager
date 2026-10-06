@@ -3,10 +3,7 @@ import LoadingBar from '@app/components/LoadingBar';
 import PWAHeader from '@app/components/PWAHeader';
 import ServiceWorkerSetup from '@app/components/ServiceWorkerSetup';
 import StatusChecker from '@app/components/StatusChecker';
-import Toast from '@app/components/Toast';
-import ToastContainer from '@app/components/ToastContainer';
 import { InteractionProvider } from '@app/context/InteractionContext';
-import type { AvailableLocale } from '@app/context/LanguageContext';
 import { LanguageContext } from '@app/context/LanguageContext';
 import { SettingsProvider } from '@app/context/SettingsContext';
 import { UserContext } from '@app/context/UserContext';
@@ -14,15 +11,18 @@ import type { User } from '@app/hooks/useUser';
 import { Permission, useUser } from '@app/hooks/useUser';
 import '@app/styles/globals.css';
 import { polyfillIntl } from '@app/utils/polyfillIntl';
+import { getHostAndPort } from '@app/utils/urlHelper';
+import '@fontsource-variable/inter';
 import { MediaServerType } from '@server/constants/server';
 import type { PublicSettingsResponse } from '@server/interfaces/api/settingsInterfaces';
+import type { AvailableLocale } from '@server/types/languages';
 import axios from 'axios';
 import type { AppInitialProps, AppProps } from 'next/app';
 import App from 'next/app';
 import Head from 'next/head';
 import { useEffect, useState } from 'react';
+import { Toaster } from 'react-hot-toast';
 import { IntlProvider } from 'react-intl';
-import { ToastProvider } from 'react-toast-notifications';
 import { SWRConfig } from 'swr';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -46,6 +46,8 @@ const loadLocaleData = (locale: AvailableLocale): Promise<any> => {
       return import('../i18n/locale/es.json');
     case 'es-MX':
       return import('../i18n/locale/es_MX.json');
+    case 'et':
+      return import('../i18n/locale/et.json');
     case 'fi':
       return import('../i18n/locale/fi.json');
     case 'fr':
@@ -64,6 +66,8 @@ const loadLocaleData = (locale: AvailableLocale): Promise<any> => {
       return import('../i18n/locale/ja.json');
     case 'ko':
       return import('../i18n/locale/ko.json');
+    case 'lb':
+      return import('../i18n/locale/lb.json');
     case 'lt':
       return import('../i18n/locale/lt.json');
     case 'nb-NO':
@@ -90,6 +94,8 @@ const loadLocaleData = (locale: AvailableLocale): Promise<any> => {
       return import('../i18n/locale/tr.json');
     case 'uk':
       return import('../i18n/locale/uk.json');
+    case 'vi':
+      return import('../i18n/locale/vi.json');
     case 'zh-CN':
       return import('../i18n/locale/zh_Hans.json');
     case 'zh-TW':
@@ -200,21 +206,27 @@ const CoreApp: Omit<NextAppComponentType, 'origGetInitialProps'> = ({
           <LoadingBar />
           <SettingsProvider currentSettings={currentSettings}>
             <InteractionProvider>
-              <ToastProvider components={{ Toast, ToastContainer }}>
-                <Head>
-                  <title>{currentSettings.applicationTitle}</title>
-                  <meta
-                    name="viewport"
-                    content="initial-scale=1, viewport-fit=cover, width=device-width"
-                  ></meta>
-                  <PWAHeader
-                    applicationTitle={currentSettings.applicationTitle}
-                  />
-                </Head>
-                <StatusChecker />
-                <ServiceWorkerSetup />
-                <UserContext initialUser={user}>{component}</UserContext>
-              </ToastProvider>
+              <Head>
+                <title>{currentSettings.applicationTitle}</title>
+                <meta
+                  name="viewport"
+                  content="initial-scale=1, viewport-fit=cover, width=device-width"
+                />
+                <PWAHeader
+                  applicationTitle={currentSettings.applicationTitle}
+                />
+              </Head>
+              <StatusChecker />
+              <ServiceWorkerSetup />
+              <UserContext initialUser={user}>{component}</UserContext>
+              <Toaster
+                position="top-right"
+                toastOptions={{ duration: 4000 }}
+                containerStyle={{
+                  zIndex: 10000,
+                  paddingTop: 'env(safe-area-inset-top)',
+                }}
+              />
             </InteractionProvider>
           </SettingsProvider>
         </IntlProvider>
@@ -231,7 +243,8 @@ CoreApp.getInitialProps = async (initialProps) => {
     applicationTitle: '',
     applicationUrl: '',
     hideAvailable: false,
-    hideBlacklisted: false,
+    hideBlocklisted: false,
+    hideRequested: false,
     movie4kEnabled: false,
     series4kEnabled: false,
     localLogin: true,
@@ -249,14 +262,14 @@ CoreApp.getInitialProps = async (initialProps) => {
     emailEnabled: false,
     newPlexLogin: true,
     youtubeUrl: '',
+    versionCheck: true,
+    plexClientIdentifier: '',
   };
 
   if (ctx.res) {
     // Check if app is initialized and redirect if necessary
     const response = await axios.get<PublicSettingsResponse>(
-      `http://${process.env.HOST || 'localhost'}:${
-        process.env.PORT || 5055
-      }/api/v1/settings/public`
+      `http://${getHostAndPort()}/api/v1/settings/public`
     );
 
     currentSettings = response.data;
@@ -274,9 +287,7 @@ CoreApp.getInitialProps = async (initialProps) => {
       try {
         // Attempt to get the user by running a request to the local api
         const response = await axios.get<User>(
-          `http://${process.env.HOST || 'localhost'}:${
-            process.env.PORT || 5055
-          }/api/v1/auth/me`,
+          `http://${getHostAndPort()}/api/v1/auth/me`,
           {
             headers:
               ctx.req && ctx.req.headers.cookie
@@ -292,7 +303,7 @@ CoreApp.getInitialProps = async (initialProps) => {
           });
           ctx.res.end();
         }
-      } catch (e) {
+      } catch {
         // If there is no user, and ctx.res is set (to check if we are on the server side)
         // _AND_ we are not already on the login or setup route, redirect to /login with a 307
         // before anything actually renders
@@ -307,16 +318,15 @@ CoreApp.getInitialProps = async (initialProps) => {
   }
 
   // Run the default getInitialProps for the main nextjs initialProps
-  const appInitialProps: AppInitialProps = await App.getInitialProps(
-    initialProps
-  );
+  const appInitialProps: AppInitialProps =
+    await App.getInitialProps(initialProps);
 
   const locale = user?.settings?.locale
     ? user.settings.locale
     : currentSettings.locale;
 
   const messages = await loadLocaleData(locale as AvailableLocale);
-  await polyfillIntl(locale);
+  await polyfillIntl();
 
   return { ...appInitialProps, user, messages, locale, currentSettings };
 };

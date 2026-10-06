@@ -1,6 +1,6 @@
 import Dropdown from '@app/components/Common/Dropdown';
 import { withProperties } from '@app/utils/typeHelpers';
-import { Menu } from '@headlessui/react';
+import { Menu, MenuButton } from '@headlessui/react';
 import { ChevronDownIcon } from '@heroicons/react/24/solid';
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes } from 'react';
 
@@ -34,9 +34,9 @@ const ButtonWithDropdown = ({
       break;
     default:
       styleClasses.mainButtonClasses +=
-        ' bg-indigo-600 border-indigo-500 bg-opacity-80 hover:bg-opacity-100 hover:border-indigo-500 active:bg-indigo-700 active:border-indigo-700 focus:ring-blue';
+        ' bg-indigo-600/80 border-indigo-500 hover:bg-indigo-600 hover:border-indigo-500 active:bg-indigo-700 active:border-indigo-700 focus:ring-blue';
       styleClasses.dropdownSideButtonClasses +=
-        ' bg-indigo-600 bg-opacity-80 border-indigo-500 hover:bg-opacity-100 active:bg-opacity-100 focus:ring-blue';
+        ' bg-indigo-600/80 border-indigo-500 hover:bg-indigo-600 active:bg-indigo-600 focus:ring-blue';
   }
 
   const TriggerElement = props.as ?? 'button';
@@ -54,13 +54,13 @@ const ButtonWithDropdown = ({
       </TriggerElement>
       {children && (
         <span className="relative -ml-px block">
-          <Menu.Button
+          <MenuButton
             type="button"
             className={`relative z-10 inline-flex h-full items-center rounded-r-md px-2 py-2 text-sm font-medium leading-5 text-white transition duration-150 ease-in-out hover:z-20 focus:z-20 ${styleClasses.dropdownSideButtonClasses}`}
             aria-label="Expand"
           >
             {dropdownIcon ? dropdownIcon : <ChevronDownIcon />}
-          </Menu.Button>
+          </MenuButton>
           <Dropdown.Items dropdownType={buttonType}>{children}</Dropdown.Items>
         </span>
       )}

@@ -3,6 +3,7 @@ import Modal from '@app/components/Common/Modal';
 import type { RequestOverrides } from '@app/components/RequestModal/AdvancedRequester';
 import AdvancedRequester from '@app/components/RequestModal/AdvancedRequester';
 import QuotaDisplay from '@app/components/RequestModal/QuotaDisplay';
+import useToasts from '@app/hooks/useToasts';
 import { useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
@@ -15,7 +16,6 @@ import type { MovieDetails } from '@server/models/Movie';
 import axios from 'axios';
 import { useCallback, useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages('components.RequestModal', {
@@ -94,6 +94,7 @@ const MovieRequestModal = ({
         mediaId: data?.id,
         mediaType: 'movie',
         is4k,
+        ignoreQuota: requestOverrides?.ignoreQuota,
         ...overrideParams,
       });
       mutate('/api/v1/request?filter=all&take=10&sort=modified&skip=0');
@@ -124,7 +125,7 @@ const MovieRequestModal = ({
           { appearance: 'success', autoDismiss: true }
         );
       }
-    } catch (e) {
+    } catch {
       addToast(intl.formatMessage(messages.requesterror), {
         appearance: 'error',
         autoDismiss: true,
@@ -167,7 +168,7 @@ const MovieRequestModal = ({
           { appearance: 'success', autoDismiss: true }
         );
       }
-    } catch (e) {
+    } catch {
       setIsUpdating(false);
     }
   };
@@ -212,7 +213,7 @@ const MovieRequestModal = ({
       if (onComplete) {
         onComplete(MediaStatus.PENDING);
       }
-    } catch (e) {
+    } catch {
       addToast(<span>{intl.formatMessage(messages.errorediting)}</span>, {
         appearance: 'error',
         autoDismiss: true,
@@ -238,23 +239,23 @@ const MovieRequestModal = ({
           hasPermission(Permission.MANAGE_REQUESTS)
             ? updateRequest(true)
             : hasPermission(Permission.REQUEST_ADVANCED)
-            ? updateRequest()
-            : cancelRequest()
+              ? updateRequest()
+              : cancelRequest()
         }
         okDisabled={isUpdating}
         okText={
           hasPermission(Permission.MANAGE_REQUESTS)
             ? intl.formatMessage(messages.approve)
             : hasPermission(Permission.REQUEST_ADVANCED)
-            ? intl.formatMessage(messages.edit)
-            : intl.formatMessage(messages.cancel)
+              ? intl.formatMessage(messages.edit)
+              : intl.formatMessage(messages.cancel)
         }
         okButtonType={
           hasPermission(Permission.MANAGE_REQUESTS)
             ? 'success'
             : hasPermission(Permission.REQUEST_ADVANCED)
-            ? 'primary'
-            : 'danger'
+              ? 'primary'
+              : 'danger'
         }
         onSecondary={
           isOwner &&
@@ -284,12 +285,16 @@ const MovieRequestModal = ({
           : intl.formatMessage(messages.requestfrom, {
               username: editRequest.requestedBy.displayName,
             })}
-        {(hasPermission(Permission.REQUEST_ADVANCED) ||
-          hasPermission(Permission.MANAGE_REQUESTS)) && (
+        {hasPermission(
+          [Permission.REQUEST_ADVANCED, Permission.MANAGE_REQUESTS],
+          { type: 'or' }
+        ) && (
           <AdvancedRequester
             type="movie"
+            tmdbId={tmdbId}
             is4k={is4k}
             requestUser={editRequest.requestedBy}
+            requestId={editRequest.id}
             defaultOverrides={{
               folder: editRequest.rootFolder,
               profile: editRequest.profileId,
@@ -320,7 +325,10 @@ const MovieRequestModal = ({
       backgroundClickable
       onCancel={onCancel}
       onOk={sendRequest}
-      okDisabled={isUpdating || quota?.movie.restricted}
+      okDisabled={
+        isUpdating ||
+        (quota?.movie.restricted && !requestOverrides?.ignoreQuota)
+      }
       title={intl.formatMessage(
         is4k ? messages.requestmovie4ktitle : messages.requestmovietitle
       )}
@@ -354,11 +362,15 @@ const MovieRequestModal = ({
           }
         />
       )}
-      {(hasPermission(Permission.REQUEST_ADVANCED) ||
-        hasPermission(Permission.MANAGE_REQUESTS)) && (
+      {hasPermission(
+        [Permission.REQUEST_ADVANCED, Permission.MANAGE_REQUESTS],
+        { type: 'or' }
+      ) && (
         <AdvancedRequester
+          tmdbId={tmdbId}
           type="movie"
           is4k={is4k}
+          quota={quota}
           onChange={(overrides) => {
             setRequestOverrides(overrides);
           }}

@@ -17,7 +17,7 @@ import { MediaServerType } from '@server/constants/server';
 import axios from 'axios';
 import { useRouter } from 'next/dist/client/router';
 import Image from 'next/image';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import { useIntl } from 'react-intl';
 import { CSSTransition, SwitchTransition } from 'react-transition-group';
 import useSWR from 'swr';
@@ -111,42 +111,42 @@ const Login = () => {
     settings.currentSettings.localLogin;
   const additionalLoginOptions = [
     settings.currentSettings.mediaServerLogin &&
-    (settings.currentSettings.mediaServerType === MediaServerType.PLEX ? (
-      <PlexLoginButton
-        key="plex"
-        isProcessing={isProcessing}
-        onAuthToken={(authToken) => setAuthToken(authToken)}
-        large={!isJellyfin && !settings.currentSettings.localLogin}
-      />
-    ) : (
-      settings.currentSettings.localLogin &&
-      (mediaServerLogin ? (
-        <Button
-          key="jellyseerr"
-          data-testid="jellyseerr-login-button"
-          className="flex-1 bg-transparent"
-          onClick={() => setMediaServerLogin(false)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/os_icon.svg"
-            alt={settings.currentSettings.applicationTitle}
-            className="mr-2 h-5"
-          />
-          <span>{settings.currentSettings.applicationTitle}</span>
-        </Button>
+      (settings.currentSettings.mediaServerType === MediaServerType.PLEX ? (
+        <PlexLoginButton
+          key="plex"
+          isProcessing={isProcessing}
+          onAuthToken={(authToken) => setAuthToken(authToken)}
+          large={!isJellyfin && !settings.currentSettings.localLogin}
+        />
       ) : (
-        <Button
-          key="mediaserver"
-          data-testid="mediaserver-login-button"
-          className="flex-1 bg-transparent"
-          onClick={() => setMediaServerLogin(true)}
-        >
-          <MediaServerLogo />
-          <span>{mediaServerName}</span>
-        </Button>
-      ))
-    )),
+        settings.currentSettings.localLogin &&
+        (mediaServerLogin ? (
+          <Button
+            key="seerr"
+            data-testid="seerr-login-button"
+            className="flex-1 bg-transparent"
+            onClick={() => setMediaServerLogin(false)}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/favicon-32x32.png"
+              alt={settings.currentSettings.applicationTitle}
+              className="mr-2 h-5"
+            />
+            <span>{settings.currentSettings.applicationTitle}</span>
+          </Button>
+        ) : (
+          <Button
+            key="mediaserver"
+            data-testid="mediaserver-login-button"
+            className="flex-1 bg-transparent"
+            onClick={() => setMediaServerLogin(true)}
+          >
+            <MediaServerLogo />
+            <span>{mediaServerName}</span>
+          </Button>
+        ))
+      )),
   ].filter((o): o is JSX.Element => !!o);
 
   return (
@@ -159,17 +159,17 @@ const Login = () => {
           ) ?? []
         }
       />
-      <div className="absolute top-4 right-4 z-50">
+      <div className="absolute right-4 top-4 z-50">
         <LanguagePicker />
       </div>
       <div className="relative z-40 mt-10 flex flex-col items-center px-4 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="relative h-48 w-full max-w-full">
-          <Image src="/logo_stacked.svg" alt="Logo" fill />
+          <Image src="/logo_stacked.png" alt="Logo" fill />
         </div>
       </div>
       <div className="relative z-50 mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div
-          className="bg-gray-800 bg-opacity-50 shadow sm:rounded-lg"
+          className="bg-gray-800/50 shadow sm:rounded-lg"
           style={{ backdropFilter: 'blur(5px)' }}
         >
           <>
@@ -201,30 +201,23 @@ const Login = () => {
                 <CSSTransition
                   key={mediaServerLogin ? 'ms' : 'local'}
                   nodeRef={loginRef}
-                  addEndListener={(done) => {
-                    loginRef.current?.addEventListener(
-                      'transitionend',
-                      done,
-                      false
-                    );
-                  }}
+                  timeout={{ enter: 300, exit: 150 }}
                   onEntered={() => {
                     document
                       .querySelector<HTMLInputElement>('#email, #username')
                       ?.focus();
                   }}
                   classNames={{
-                    appear: 'opacity-0',
-                    appearActive: 'transition-opacity duration-500 opacity-100',
                     enter: 'opacity-0',
-                    enterActive: 'transition-opacity duration-500 opacity-100',
-                    exitActive: 'transition-opacity duration-0 opacity-0',
+                    enterActive: 'transition-opacity duration-300 opacity-100',
+                    exit: 'opacity-100',
+                    exitActive: 'transition-opacity duration-150 opacity-0',
                   }}
                 >
                   <div ref={loginRef} className="button-container">
                     {isJellyfin &&
-                      (mediaServerLogin ||
-                        !settings.currentSettings.localLogin) ? (
+                    (mediaServerLogin ||
+                      !settings.currentSettings.localLogin) ? (
                       <JellyfinLogin
                         serverType={settings.currentSettings.mediaServerType}
                         revalidate={revalidate}
@@ -241,11 +234,11 @@ const Login = () => {
               {additionalLoginOptions.length > 0 &&
                 (loginFormVisible ? (
                   <div className="flex items-center py-5">
-                    <div className="flex-grow border-t border-gray-600"></div>
+                    <div className="flex-grow border-t border-gray-600" />
                     <span className="mx-2 flex-shrink text-sm text-gray-400">
                       {intl.formatMessage(messages.orsigninwith)}
                     </span>
-                    <div className="flex-grow border-t border-gray-600"></div>
+                    <div className="flex-grow border-t border-gray-600" />
                   </div>
                 ) : (
                   <h2 className="mb-6 text-center text-lg font-bold text-neutral-200">
@@ -254,8 +247,9 @@ const Login = () => {
                 ))}
 
               <div
-                className={`flex w-full flex-wrap gap-2 ${!loginFormVisible ? 'flex-col' : ''
-                  }`}
+                className={`flex w-full flex-wrap gap-2 ${
+                  !loginFormVisible ? 'flex-col' : ''
+                }`}
               >
                 {additionalLoginOptions}
               </div>

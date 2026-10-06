@@ -12,9 +12,10 @@ import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import { checkUser, isAuthenticated } from '@server/middleware/auth';
-import { mapWatchProviderDetails } from '@server/models/common';
+import deprecatedRoute from '@server/middleware/deprecation';
 import { mapProductionCompany } from '@server/models/Movie';
 import { mapNetwork } from '@server/models/Tv';
+import { mapWatchProviderDetails } from '@server/models/common';
 import overrideRuleRoutes from '@server/routes/overrideRule';
 import settingsRoutes from '@server/routes/settings';
 import watchlistRoutes from '@server/routes/watchlist';
@@ -28,7 +29,7 @@ import restartFlag from '@server/utils/restartFlag';
 import { isPerson } from '@server/utils/typeHelpers';
 import { Router } from 'express';
 import authRoutes from './auth';
-import blacklistRoutes from './blacklist';
+import blocklistRoutes from './blocklist';
 import collectionRoutes from './collection';
 import discoverRoutes, { createTmdbWithRegionLanguage } from './discover';
 import issueRoutes from './issue';
@@ -47,40 +48,47 @@ const router = Router();
 router.use(checkUser);
 
 router.get<unknown, StatusResponse>('/status', async (req, res) => {
-  const githubApi = new GithubAPI();
-
+  const settings = getSettings();
   const currentVersion = getAppVersion();
   const commitTag = getCommitTag();
+  const checkUpdate =
+    req.query.checkUpdateAvailable !== undefined
+      ? req.query.checkUpdateAvailable
+      : settings.fullPublicSettings.versionCheck;
   let updateAvailable = false;
   let commitsBehind = 0;
 
-  if (currentVersion.startsWith('develop-') && commitTag !== 'local') {
-    const commits = await githubApi.getJellyseerrCommits();
+  if (checkUpdate) {
+    const githubApi = new GithubAPI();
 
-    if (commits.length) {
-      const filteredCommits = commits.filter(
-        (commit) => !commit.commit.message.includes('[skip ci]')
-      );
-      if (filteredCommits[0].sha !== commitTag) {
-        updateAvailable = true;
+    if (currentVersion.startsWith('develop-') && commitTag !== 'local') {
+      const commits = await githubApi.getSeerrCommits();
+
+      if (commits.length) {
+        const filteredCommits = commits.filter(
+          (commit) => !commit.commit.message.includes('[skip ci]')
+        );
+        if (filteredCommits[0].sha !== commitTag) {
+          updateAvailable = true;
+        }
+
+        const commitIndex = filteredCommits.findIndex(
+          (commit) => commit.sha === commitTag
+        );
+
+        if (updateAvailable) {
+          commitsBehind = commitIndex;
+        }
       }
+    } else if (commitTag !== 'local') {
+      const releases = await githubApi.getSeerrReleases();
 
-      const commitIndex = filteredCommits.findIndex(
-        (commit) => commit.sha === commitTag
-      );
+      if (releases.length) {
+        const latestVersion = releases[0];
 
-      if (updateAvailable) {
-        commitsBehind = commitIndex;
-      }
-    }
-  } else if (commitTag !== 'local') {
-    const releases = await githubApi.getJellyseerrReleases();
-
-    if (releases.length) {
-      const latestVersion = releases[0];
-
-      if (!latestVersion.name.includes(currentVersion)) {
-        updateAvailable = true;
+        if (!latestVersion.name.includes(currentVersion)) {
+          updateAvailable = true;
+        }
       }
     }
   }
@@ -88,8 +96,7 @@ router.get<unknown, StatusResponse>('/status', async (req, res) => {
   return res.status(200).json({
     version: getAppVersion(),
     commitTag: getCommitTag(),
-    updateAvailable,
-    commitsBehind,
+    ...(checkUpdate && { updateAvailable, commitsBehind }),
     restartRequired: restartFlag.isSet(),
   });
 });
@@ -151,7 +158,17 @@ router.use('/search', isAuthenticated(), searchRoutes);
 router.use('/discover', isAuthenticated(), discoverRoutes);
 router.use('/request', isAuthenticated(), requestRoutes);
 router.use('/watchlist', isAuthenticated(), watchlistRoutes);
-router.use('/blacklist', isAuthenticated(), blacklistRoutes);
+router.use('/blocklist', isAuthenticated(), blocklistRoutes);
+router.use(
+  '/blacklist',
+  isAuthenticated(),
+  deprecatedRoute({
+    oldPath: '/api/v1/blacklist',
+    newPath: '/api/v1/blocklist',
+    sunsetDate: '2026-06-01',
+  }),
+  blocklistRoutes
+);
 router.use('/movie', isAuthenticated(), movieRoutes);
 router.use('/tv', isAuthenticated(), tvRoutes);
 router.use('/media', isAuthenticated(), mediaRoutes);
@@ -161,11 +178,7 @@ router.use('/service', isAuthenticated(), serviceRoutes);
 router.use('/issue', isAuthenticated(), issueRoutes);
 router.use('/issueComment', isAuthenticated(), issueCommentRoutes);
 router.use('/auth', authRoutes);
-router.use(
-  '/overrideRule',
-  isAuthenticated(Permission.ADMIN),
-  overrideRuleRoutes
-);
+router.use('/overrideRule', isAuthenticated(), overrideRuleRoutes);
 
 router.get('/regions', isAuthenticated(), async (req, res, next) => {
   const tmdb = new TheMovieDb();
@@ -445,7 +458,7 @@ router.get('/certifications/tv', isAuthenticated(), async (req, res, next) => {
 
 router.get('/', (_req, res) => {
   return res.status(200).json({
-    api: 'Jellyseerr API',
+    api: 'Seerr API',
     version: '1.0',
   });
 });

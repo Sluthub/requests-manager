@@ -1,4 +1,5 @@
 import type { User } from '@server/entity/User';
+import { defineMessages, getIntl } from '@server/i18n';
 import { Notification } from '@server/lib/notifications';
 import type { NotificationAgent } from '@server/lib/notifications/agents/agent';
 import DiscordAgent from '@server/lib/notifications/agents/discord';
@@ -12,18 +13,27 @@ import TelegramAgent from '@server/lib/notifications/agents/telegram';
 import WebhookAgent from '@server/lib/notifications/agents/webhook';
 import WebPushAgent from '@server/lib/notifications/agents/webpush';
 import { getSettings } from '@server/lib/settings';
+import type { AvailableLocale } from '@server/types/languages';
 import { Router } from 'express';
 
 const notificationRoutes = Router();
 
-const sendTestNotification = async (agent: NotificationAgent, user: User) =>
-  await agent.send(Notification.TEST_NOTIFICATION, {
+const messages = defineMessages('notifications.test', {
+  subject: 'Test Notification',
+  message: 'Check check, 1, 2, 3. Are we coming in clear?',
+});
+
+const sendTestNotification = async (agent: NotificationAgent, user: User) => {
+  const intl = getIntl(user.settings?.locale as AvailableLocale);
+
+  return await agent.send(Notification.TEST_NOTIFICATION, {
     notifySystem: true,
     notifyAdmin: false,
     notifyUser: user,
-    subject: 'Test Notification',
-    message: 'Check check, 1, 2, 3. Are we coming in clear?',
+    subject: intl.formatMessage(messages.subject),
+    message: intl.formatMessage(messages.message),
   });
+};
 
 notificationRoutes.get('/discord', (_req, res) => {
   const settings = getSettings();
@@ -270,6 +280,7 @@ notificationRoutes.get('/webhook', (_req, res) => {
 
   const response: typeof webhookSettings = {
     enabled: webhookSettings.enabled,
+    embedPoster: webhookSettings.embedPoster,
     types: webhookSettings.types,
     options: {
       ...webhookSettings.options,
@@ -278,6 +289,8 @@ notificationRoutes.get('/webhook', (_req, res) => {
           'utf8'
         )
       ),
+      customHeaders: webhookSettings.options.customHeaders ?? [],
+      supportVariables: webhookSettings.options.supportVariables ?? false,
     },
   };
 
@@ -291,13 +304,16 @@ notificationRoutes.post('/webhook', async (req, res, next) => {
 
     settings.notifications.agents.webhook = {
       enabled: req.body.enabled,
+      embedPoster: req.body.embedPoster,
       types: req.body.types,
       options: {
-        jsonPayload: Buffer.from(req.body.options.jsonPayload).toString(
-          'base64'
-        ),
+        jsonPayload: Buffer.from(
+          JSON.stringify(req.body.options.jsonPayload)
+        ).toString('base64'),
         webhookUrl: req.body.options.webhookUrl,
         authHeader: req.body.options.authHeader,
+        customHeaders: req.body.options.customHeaders ?? [],
+        supportVariables: req.body.options.supportVariables ?? false,
       },
     };
     await settings.save();
@@ -321,13 +337,16 @@ notificationRoutes.post('/webhook/test', async (req, res, next) => {
 
     const testBody = {
       enabled: req.body.enabled,
+      embedPoster: req.body.embedPoster,
       types: req.body.types,
       options: {
-        jsonPayload: Buffer.from(req.body.options.jsonPayload).toString(
-          'base64'
-        ),
+        jsonPayload: Buffer.from(
+          JSON.stringify(req.body.options.jsonPayload)
+        ).toString('base64'),
         webhookUrl: req.body.options.webhookUrl,
         authHeader: req.body.options.authHeader,
+        customHeaders: req.body.options.customHeaders ?? [],
+        supportVariables: req.body.options.supportVariables ?? false,
       },
     };
 

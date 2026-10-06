@@ -145,6 +145,7 @@ export interface IMDBRating {
   title: string;
   url: string;
   criticsScore: number;
+  criticsScoreCount: number;
 }
 
 /**
@@ -155,13 +156,17 @@ export interface IMDBRating {
  */
 class IMDBRadarrProxy extends ExternalAPI {
   constructor() {
-    super('https://api.radarr.video/v1', {
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      nodeCache: cacheManager.getCache('imdb').data,
-    });
+    super(
+      'https://api.radarr.video/v1',
+      {},
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        nodeCache: cacheManager.getCache('imdb').data,
+      }
+    );
   }
 
   /**
@@ -187,10 +192,12 @@ class IMDBRadarrProxy extends ExternalAPI {
         title: data[0].Title,
         url: `https://www.imdb.com/title/${data[0].ImdbId}`,
         criticsScore: data[0].MovieRatings.Imdb.Value,
+        criticsScoreCount: data[0].MovieRatings.Imdb.Count,
       };
     } catch (e) {
       throw new Error(
-        `[IMDB RADARR PROXY API] Failed to retrieve movie ratings: ${e.message}`
+        `[IMDB RADARR PROXY API] Failed to retrieve movie ratings: ${e.message}`,
+        { cause: e }
       );
     }
   }

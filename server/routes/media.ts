@@ -17,7 +17,7 @@ import logger from '@server/logger';
 import { isAuthenticated } from '@server/middleware/auth';
 import { Router } from 'express';
 import type { FindOneOptions } from 'typeorm';
-import { In } from 'typeorm';
+import { EntityNotFoundError, In, IsNull, Not } from 'typeorm';
 
 const mediaRoutes = Router();
 
@@ -48,8 +48,6 @@ mediaRoutes.get('/', async (req, res, next) => {
     case 'pending':
       statusFilter = MediaStatus.PENDING;
       break;
-    default:
-      statusFilter = undefined;
   }
 
   let sortFilter: FindOneOptions<Media>['order'] = {
@@ -68,12 +66,18 @@ mediaRoutes.get('/', async (req, res, next) => {
       };
   }
 
+  let whereClause: FindOneOptions<Media>['where'];
+  if (statusFilter || req.query.sort === 'mediaAdded') {
+    whereClause = {};
+    if (statusFilter) whereClause.status = statusFilter;
+    if (req.query.sort === 'mediaAdded')
+      whereClause.mediaAddedAt = Not(IsNull());
+  }
+
   try {
     const [media, mediaCount] = await mediaRepository.findAndCount({
       order: sortFilter,
-      where: statusFilter && {
-        status: statusFilter,
-      },
+      where: whereClause,
       take: pageSize,
       skip,
     });
@@ -112,7 +116,7 @@ mediaRoutes.post<
       return next({ status: 404, message: 'Media does not exist.' });
     }
 
-    const is4k = Boolean(req.body.is4k);
+    const is4k = String(req.body.is4k) === 'true';
 
     switch (req.params.status) {
       case 'available':
@@ -145,16 +149,16 @@ mediaRoutes.post<
             message: 'Only series can be set to be partially available',
           });
         }
-        media.status = MediaStatus.PARTIALLY_AVAILABLE;
+        media[is4k ? 'status4k' : 'status'] = MediaStatus.PARTIALLY_AVAILABLE;
         break;
       case 'processing':
-        media.status = MediaStatus.PROCESSING;
+        media[is4k ? 'status4k' : 'status'] = MediaStatus.PROCESSING;
         break;
       case 'pending':
-        media.status = MediaStatus.PENDING;
+        media[is4k ? 'status4k' : 'status'] = MediaStatus.PENDING;
         break;
       case 'unknown':
-        media.status = MediaStatus.UNKNOWN;
+        media[is4k ? 'status4k' : 'status'] = MediaStatus.UNKNOWN;
     }
 
     await mediaRepository.save(media);
@@ -174,15 +178,24 @@ mediaRoutes.delete(
         where: { id: Number(req.params.id) },
       });
 
-      await mediaRepository.remove(media);
+      if (media.status === MediaStatus.BLOCKLISTED) {
+        media.resetServiceData();
+        await mediaRepository.save(media);
+      } else {
+        await mediaRepository.remove(media);
+      }
 
       return res.status(204).send();
     } catch (e) {
-      logger.error('Something went wrong fetching media in delete request', {
+      if (e instanceof EntityNotFoundError) {
+        return res.status(204).send();
+      }
+      logger.error('Something went wrong deleting media', {
         label: 'Media',
+        mediaId: req.params.id,
         message: e.message,
       });
-      next({ status: 404, message: 'Media not found' });
+      next({ status: 500, message: 'Failed to delete media' });
     }
   }
 );
@@ -197,8 +210,10 @@ mediaRoutes.delete(
       const media = await mediaRepository.findOneOrFail({
         where: { id: Number(req.params.id) },
       });
-      const is4k = media.serviceUrl4k !== undefined;
+
+      const is4k = String(req.query.is4k) === 'true';
       const isMovie = media.mediaType === MediaType.MOVIE;
+
       let serviceSettings;
       if (isMovie) {
         serviceSettings = settings.radarr.find(
@@ -210,35 +225,38 @@ mediaRoutes.delete(
         );
       }
 
+      const specificServiceId = is4k ? media.serviceId4k : media.serviceId;
       if (
-        media.serviceId &&
-        media.serviceId >= 0 &&
-        serviceSettings?.id !== media.serviceId
+        specificServiceId &&
+        specificServiceId >= 0 &&
+        serviceSettings?.id !== specificServiceId
       ) {
         if (isMovie) {
           serviceSettings = settings.radarr.find(
-            (radarr) => radarr.id === media.serviceId
+            (radarr) => radarr.id === specificServiceId
           );
         } else {
           serviceSettings = settings.sonarr.find(
-            (sonarr) => sonarr.id === media.serviceId
+            (sonarr) => sonarr.id === specificServiceId
           );
         }
       }
+
       if (!serviceSettings) {
-        logger.warn(
-          `There is no default ${
-            is4k ? '4K ' : '' + isMovie ? 'Radarr' : 'Sonarr'
-          }/ server configured. Did you set any of your ${
-            is4k ? '4K ' : '' + isMovie ? 'Radarr' : 'Sonarr'
-          } servers as default?`,
+        const arrName = `${is4k ? '4K ' : ''}${isMovie ? 'Radarr' : 'Sonarr'}`;
+        logger.info(
+          `There is no default ${arrName} server configured. Did you set any of your ${arrName} servers as default?`,
           {
             label: 'Media Request',
             mediaId: media.id,
           }
         );
-        return;
+        return next({
+          status: 409,
+          message: `No ${arrName} server configured to delete media files`,
+        });
       }
+
       let service;
       if (isMovie) {
         service = new RadarrAPI({
@@ -253,13 +271,7 @@ mediaRoutes.delete(
       }
 
       if (isMovie) {
-        await (service as RadarrAPI).removeMovie(
-          parseInt(
-            is4k
-              ? (media.externalServiceSlug4k as string)
-              : (media.externalServiceSlug as string)
-          )
-        );
+        await (service as RadarrAPI).removeMovie(media.tmdbId);
       } else {
         const tmdb = new TheMovieDb();
         const series = await tmdb.getTvShow({ tvId: media.tmdbId });
@@ -267,16 +279,28 @@ mediaRoutes.delete(
         if (!tvdbId) {
           throw new Error('TVDB ID not found');
         }
-        await (service as SonarrAPI).removeSerie(tvdbId);
+        await (service as SonarrAPI).removeSeries(tvdbId);
+
+        for (const season of media.seasons) {
+          season[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
+        }
       }
+
+      media[is4k ? 'status4k' : 'status'] = MediaStatus.DELETED;
+      media.resetServiceData(is4k);
+      await mediaRepository.save(media);
 
       return res.status(204).send();
     } catch (e) {
-      logger.error('Something went wrong fetching media in delete request', {
+      if (e instanceof EntityNotFoundError) {
+        return next({ status: 404, message: 'Media not found' });
+      }
+      logger.error('Something went wrong deleting media file', {
         label: 'Media',
+        mediaId: req.params.id,
         message: e.message,
       });
-      next({ status: 404, message: 'Media not found' });
+      next({ status: 500, message: 'Failed to delete media file' });
     }
   }
 );
@@ -311,12 +335,12 @@ mediaRoutes.get<{ id: string }, MediaWatchDataResponse>(
       if (media.ratingKey) {
         const watchStats = await tautulli.getMediaWatchStats(media.ratingKey);
         const watchUsers = await tautulli.getMediaWatchUsers(media.ratingKey);
+        const plexIds = watchUsers.map((u) => u.user_id);
+        if (!plexIds.length) plexIds.push(-1);
 
         const users = await userRepository
           .createQueryBuilder('user')
-          .where('user.plexId IN (:...plexIds)', {
-            plexIds: watchUsers.map((u) => u.user_id),
-          })
+          .where('user.plexId IN (:...plexIds)', { plexIds })
           .getMany();
 
         const playCount =
@@ -343,12 +367,12 @@ mediaRoutes.get<{ id: string }, MediaWatchDataResponse>(
         const watchUsers4k = await tautulli.getMediaWatchUsers(
           media.ratingKey4k
         );
+        const plexIds4k = watchUsers4k.map((u) => u.user_id);
+        if (!plexIds4k.length) plexIds4k.push(-1);
 
         const users = await userRepository
           .createQueryBuilder('user')
-          .where('user.plexId IN (:...plexIds)', {
-            plexIds: watchUsers4k.map((u) => u.user_id),
-          })
+          .where('user.plexId IN (:...plexIds)', { plexIds: plexIds4k })
           .getMany();
 
         const playCount =

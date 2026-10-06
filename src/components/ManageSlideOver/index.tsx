@@ -1,4 +1,4 @@
-import BlacklistBlock from '@app/components/BlacklistBlock';
+import BlocklistBlock from '@app/components/BlocklistBlock';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
 import ConfirmButton from '@app/components/Common/ConfirmButton';
@@ -8,6 +8,7 @@ import DownloadBlock from '@app/components/DownloadBlock';
 import IssueBlock from '@app/components/IssueBlock';
 import RequestBlock from '@app/components/RequestBlock';
 import useSettings from '@app/hooks/useSettings';
+import useToasts from '@app/hooks/useToasts';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
@@ -25,6 +26,7 @@ import {
 } from '@server/constants/media';
 import { MediaServerType } from '@server/constants/server';
 import type { MediaWatchDataResponse } from '@server/interfaces/api/mediaInterfaces';
+import type { DownloadingItem } from '@server/lib/downloadtracker';
 import type { RadarrSettings, SonarrSettings } from '@server/lib/settings';
 import type { MovieDetails } from '@server/models/Movie';
 import type { TvDetails } from '@server/models/Tv';
@@ -32,6 +34,19 @@ import axios from 'axios';
 import Link from 'next/link';
 import { useIntl } from 'react-intl';
 import useSWR from 'swr';
+
+import type { JSX } from 'react';
+
+const filterDuplicateDownloads = (
+  items: DownloadingItem[] = []
+): DownloadingItem[] => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.downloadId)) return false;
+    seen.add(item.downloadId);
+    return true;
+  });
+};
 
 const messages = defineMessages('components.ManageSlideOver', {
   manageModalTitle: 'Manage {mediaType}',
@@ -50,6 +65,8 @@ const messages = defineMessages('components.ManageSlideOver', {
   removearr: 'Remove from {arr}',
   openarr4k: 'Open in 4K {arr}',
   removearr4k: 'Remove from 4K {arr}',
+  clearmediadataerror: 'Something went wrong while clearing the media data.',
+  removemediaerror: 'Something went wrong while removing the media.',
   downloadstatus: 'Downloads',
   markavailable: 'Mark as Available',
   mark4kavailable: 'Mark as Available in 4K',
@@ -95,6 +112,7 @@ const ManageSlideOver = ({
 }: ManageSlideOverMovieProps | ManageSlideOverTvProps) => {
   const { user: currentUser, hasPermission } = useUser();
   const intl = useIntl();
+  const { addToast } = useToasts();
   const settings = useSettings();
   const { data: watchData } = useSWR<MediaWatchDataResponse>(
     settings.currentSettings.mediaServerType === MediaServerType.PLEX &&
@@ -112,16 +130,35 @@ const ManageSlideOver = ({
 
   const deleteMedia = async () => {
     if (data.mediaInfo) {
-      await axios.delete(`/api/v1/media/${data.mediaInfo.id}`);
-      revalidate();
-      onClose();
+      try {
+        await axios.delete(`/api/v1/media/${data.mediaInfo.id}`);
+        revalidate();
+        onClose();
+      } catch {
+        addToast(intl.formatMessage(messages.clearmediadataerror), {
+          appearance: 'error',
+          autoDismiss: true,
+        });
+      }
     }
   };
 
-  const deleteMediaFile = async () => {
+  const deleteMediaFile = async (is4k = false) => {
     if (data.mediaInfo) {
-      await axios.delete(`/api/v1/media/${data.mediaInfo.id}/file`);
-      await axios.delete(`/api/v1/media/${data.mediaInfo.id}`);
+      try {
+        await axios.delete(
+          `/api/v1/media/${data.mediaInfo.id}/file?is4k=${is4k}`
+        );
+      } catch (e) {
+        if (!axios.isAxiosError(e) || e.response?.status !== 404) {
+          addToast(intl.formatMessage(messages.removemediaerror), {
+            appearance: 'error',
+            autoDismiss: true,
+          });
+          revalidate();
+          return;
+        }
+      }
       revalidate();
       onClose();
     }
@@ -141,6 +178,31 @@ const ManageSlideOver = ({
           sonarrData?.find(
             (sonarr) =>
               sonarr.isDefault && sonarr.id === data.mediaInfo?.serviceId
+          ) !== undefined
+        );
+      }
+    }
+    return false;
+  };
+
+  const isDefault4kService = () => {
+    if (data.mediaInfo) {
+      if (data.mediaInfo.mediaType === MediaType.MOVIE) {
+        return (
+          radarrData?.find(
+            (radarr) =>
+              radarr.isDefault &&
+              radarr.is4k &&
+              radarr.id === data.mediaInfo?.serviceId4k
+          ) !== undefined
+        );
+      } else {
+        return (
+          sonarrData?.find(
+            (sonarr) =>
+              sonarr.isDefault &&
+              sonarr.is4k &&
+              sonarr.id === data.mediaInfo?.serviceId4k
           ) !== undefined
         );
       }
@@ -203,26 +265,30 @@ const ManageSlideOver = ({
             </h3>
             <div className="overflow-hidden rounded-md border border-gray-700 shadow">
               <ul>
-                {data.mediaInfo?.downloadStatus?.map((status, index) => (
-                  <Tooltip
-                    key={`dl-status-${status.externalId}-${index}`}
-                    content={status.title}
-                  >
-                    <li className="border-b border-gray-700 last:border-b-0">
-                      <DownloadBlock downloadItem={status} />
-                    </li>
-                  </Tooltip>
-                ))}
-                {data.mediaInfo?.downloadStatus4k?.map((status, index) => (
-                  <Tooltip
-                    key={`dl-status-${status.externalId}-${index}`}
-                    content={status.title}
-                  >
-                    <li className="border-b border-gray-700 last:border-b-0">
-                      <DownloadBlock downloadItem={status} is4k />
-                    </li>
-                  </Tooltip>
-                ))}
+                {filterDuplicateDownloads(data.mediaInfo?.downloadStatus).map(
+                  (status, index) => (
+                    <Tooltip
+                      key={`dl-status-${status.externalId}-${index}`}
+                      content={status.title}
+                    >
+                      <li className="border-b border-gray-700 last:border-b-0">
+                        <DownloadBlock downloadItem={status} />
+                      </li>
+                    </Tooltip>
+                  )
+                )}
+                {filterDuplicateDownloads(data.mediaInfo?.downloadStatus4k).map(
+                  (status, index) => (
+                    <Tooltip
+                      key={`dl-status-4k-${status.externalId}-${index}`}
+                      content={status.title}
+                    >
+                      <li className="border-b border-gray-700 last:border-b-0">
+                        <DownloadBlock downloadItem={status} is4k />
+                      </li>
+                    </Tooltip>
+                  )
+                )}
               </ul>
             </div>
           </div>
@@ -271,14 +337,15 @@ const ManageSlideOver = ({
             </div>
           </div>
         )}
-        {data.mediaInfo?.status === MediaStatus.BLACKLISTED && (
+        {data.mediaInfo?.status === MediaStatus.BLOCKLISTED && (
           <div>
             <h3 className="mb-2 text-xl font-bold">
-              {intl.formatMessage(globalMessages.blacklist)}
+              {intl.formatMessage(globalMessages.blocklist)}
             </h3>
             <div className="overflow-hidden rounded-md border border-gray-700 shadow">
-              <BlacklistBlock
+              <BlocklistBlock
                 tmdbId={data.mediaInfo.tmdbId}
+                mediaType={data.mediaInfo.mediaType}
                 onUpdate={() => revalidate()}
                 onDelete={() => onClose()}
               />
@@ -335,7 +402,7 @@ const ManageSlideOver = ({
                           </div>
                         </div>
                         {!!watchData.data.users.length && (
-                          <div className="flex flex-row space-x-2 px-4 pt-3 pb-2">
+                          <div className="flex flex-row space-x-2 px-4 pb-2 pt-3">
                             <span className="shrink-0 font-bold leading-8">
                               {intl.formatMessage(messages.playedby)}
                             </span>
@@ -348,7 +415,7 @@ const ManageSlideOver = ({
                                       : `/users/${user.id}`
                                   }
                                   key={`watch-user-${user.id}`}
-                                  className="z-0 mb-1 -mr-2 shrink-0 hover:z-50"
+                                  className="z-0 -mr-2 mb-1 shrink-0 hover:z-50"
                                 >
                                   <Tooltip
                                     key={`watch-user-${user.id}`}
@@ -414,7 +481,7 @@ const ManageSlideOver = ({
                   isDefaultService() && (
                     <div>
                       <ConfirmButton
-                        onClick={() => deleteMediaFile()}
+                        onClick={() => deleteMediaFile(false)}
                         confirmText={intl.formatMessage(
                           globalMessages.areyousure
                         )}
@@ -497,7 +564,7 @@ const ManageSlideOver = ({
                           </div>
                         </div>
                         {!!watchData.data4k.users.length && (
-                          <div className="flex flex-row space-x-2 px-4 pt-3 pb-2">
+                          <div className="flex flex-row space-x-2 px-4 pb-2 pt-3">
                             <span className="shrink-0 font-bold leading-8">
                               {intl.formatMessage(messages.playedby)}
                             </span>
@@ -510,7 +577,7 @@ const ManageSlideOver = ({
                                       : `/users/${user.id}`
                                   }
                                   key={`watch-user-${user.id}`}
-                                  className="z-0 mb-1 -mr-2 shrink-0 hover:z-50"
+                                  className="z-0 -mr-2 mb-1 shrink-0 hover:z-50"
                                 >
                                   <Tooltip
                                     key={`watch-user-${user.id}`}
@@ -570,10 +637,10 @@ const ManageSlideOver = ({
                         </span>
                       </Button>
                     </a>
-                    {isDefaultService() && (
+                    {isDefault4kService() && (
                       <div>
                         <ConfirmButton
-                          onClick={() => deleteMediaFile()}
+                          onClick={() => deleteMediaFile(true)}
                           confirmText={intl.formatMessage(
                             globalMessages.areyousure
                           )}
@@ -608,7 +675,7 @@ const ManageSlideOver = ({
           )}
         {hasPermission(Permission.ADMIN) &&
           data?.mediaInfo &&
-          data.mediaInfo.status !== MediaStatus.BLACKLISTED && (
+          data.mediaInfo.status !== MediaStatus.BLOCKLISTED && (
             <div>
               <h3 className="mb-2 text-xl font-bold">
                 {intl.formatMessage(messages.manageModalAdvanced)}
@@ -668,9 +735,9 @@ const ManageSlideOver = ({
                         MediaServerType.EMBY
                           ? 'Emby'
                           : settings.currentSettings.mediaServerType ===
-                            MediaServerType.PLEX
-                          ? 'Plex'
-                          : 'Jellyfin',
+                              MediaServerType.PLEX
+                            ? 'Plex'
+                            : 'Jellyfin',
                     })}
                   </div>
                 </div>

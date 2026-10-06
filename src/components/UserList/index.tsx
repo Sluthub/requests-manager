@@ -10,7 +10,9 @@ import SensitiveInput from '@app/components/Common/SensitiveInput';
 import Table from '@app/components/Common/Table';
 import BulkEditModal from '@app/components/UserList/BulkEditModal';
 import PlexImportModal from '@app/components/UserList/PlexImportModal';
+import useDebouncedState from '@app/hooks/useDebouncedState';
 import useSettings from '@app/hooks/useSettings';
+import useToasts from '@app/hooks/useToasts';
 import { useUpdateQueryParams } from '@app/hooks/useUpdateQueryParams';
 import type { User } from '@app/hooks/useUser';
 import { Permission, UserType, useUser } from '@app/hooks/useUser';
@@ -19,9 +21,13 @@ import defineMessages from '@app/utils/defineMessages';
 import { Transition } from '@headlessui/react';
 import {
   BarsArrowDownIcon,
+  BarsArrowUpIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronUpIcon,
   InboxArrowDownIcon,
+  MagnifyingGlassIcon,
   PencilIcon,
   UserPlusIcon,
 } from '@heroicons/react/24/solid';
@@ -32,10 +38,10 @@ import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR from 'swr';
+import validator from 'validator';
 import * as Yup from 'yup';
 import JellyfinImportModal from './JellyfinImportModal';
 
@@ -77,14 +83,29 @@ const messages = defineMessages('components.UserList', {
   autogeneratepasswordTip: 'Email a server-generated password to the user',
   validationUsername: 'You must provide an username',
   validationEmail: 'Email required',
-  sortCreated: 'Join Date',
-  sortDisplayName: 'Display Name',
-  sortRequests: 'Request Count',
+  sortBy: 'Sort by {field}',
+  sortByUser: 'Sort by username',
+  sortByRequests: 'Sort by number of requests',
+  sortByType: 'Sort by account type',
+  sortByRole: 'Sort by user role',
+  sortByJoined: 'Sort by join date',
+  toggleSortDirection: 'Click again to sort {direction}',
+  toggleSortDirectionAria: 'Toggle sort direction',
+  ascending: 'ascending',
+  descending: 'descending',
+  searchUsers: 'Search…',
   localLoginDisabled:
     'The <strong>Enable Local Sign-In</strong> setting is currently disabled.',
 });
 
-type Sort = 'created' | 'updated' | 'requests' | 'displayname';
+type Sort =
+  | 'created'
+  | 'updated'
+  | 'requests'
+  | 'displayname'
+  | 'usertype'
+  | 'role';
+type SortDirection = 'asc' | 'desc';
 
 const UserList = () => {
   const intl = useIntl();
@@ -92,12 +113,26 @@ const UserList = () => {
   const settings = useSettings();
   const { addToast } = useToasts();
   const { user: currentUser, hasPermission: currentHasPermission } = useUser();
-  const [currentSort, setCurrentSort] = useState<Sort>('displayname');
+  const [currentSort, setCurrentSort] = useState<Sort>('created');
   const [currentPageSize, setCurrentPageSize] = useState<number>(10);
+  const [searchInput, searchQuery, setSearchInput] = useDebouncedState<string>(
+    '',
+    300
+  );
 
   const page = router.query.page ? Number(router.query.page) : 1;
   const pageIndex = page - 1;
   const updateQueryParams = useUpdateQueryParams({ page: page.toString() });
+  const previousSearchQueryRef = useRef<string | undefined>(undefined);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const isSearchFocusedRef = useRef(false);
+
+  const defaultSortDirection = (sortKey: Sort): SortDirection =>
+    sortKey === 'requests' || sortKey === 'updated' ? 'desc' : 'asc';
+
+  const [sortDirection, setSortDirection] = useState<SortDirection>(() =>
+    defaultSortDirection('created')
+  );
 
   const {
     data,
@@ -106,8 +141,21 @@ const UserList = () => {
   } = useSWR<UserResultsResponse>(
     `/api/v1/user?take=${currentPageSize}&skip=${
       pageIndex * currentPageSize
-    }&sort=${currentSort}`
+    }&sort=${currentSort}&sortDirection=${sortDirection}${
+      searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ''
+    }`,
+    { keepPreviousData: true }
   );
+
+  const handleSortChange = (sortKey: Sort) => {
+    if (currentSort === sortKey) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setCurrentSort(sortKey);
+      setSortDirection(defaultSortDirection(sortKey));
+    }
+    updateQueryParams('page', '1');
+  };
 
   const [isDeleting, setDeleting] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -133,6 +181,9 @@ const UserList = () => {
 
       setCurrentSort(filterSettings.currentSort);
       setCurrentPageSize(filterSettings.currentPageSize);
+      if (filterSettings.sortDirection) {
+        setSortDirection(filterSettings.sortDirection);
+      }
     }
   }, []);
 
@@ -142,9 +193,91 @@ const UserList = () => {
       JSON.stringify({
         currentSort,
         currentPageSize,
+        sortDirection,
       })
     );
-  }, [currentSort, currentPageSize]);
+  }, [currentSort, currentPageSize, sortDirection]);
+
+  const SortableColumnHeader = ({
+    sortKey,
+    currentSort,
+    sortDirection,
+    onSortChange,
+    children,
+  }: {
+    sortKey: Sort;
+    currentSort: Sort;
+    sortDirection: SortDirection;
+    onSortChange: (sortKey: Sort) => void;
+    children: React.ReactNode;
+  }) => {
+    const intl = useIntl();
+
+    const getTooltip = () => {
+      if (currentSort === sortKey) {
+        return intl.formatMessage(messages.toggleSortDirection, {
+          direction:
+            sortDirection === 'asc'
+              ? intl.formatMessage(messages.descending)
+              : intl.formatMessage(messages.ascending),
+        });
+      }
+
+      switch (sortKey) {
+        case 'displayname':
+          return intl.formatMessage(messages.sortByUser);
+        case 'requests':
+          return intl.formatMessage(messages.sortByRequests);
+        case 'usertype':
+          return intl.formatMessage(messages.sortByType);
+        case 'role':
+          return intl.formatMessage(messages.sortByRole);
+        case 'created':
+          return intl.formatMessage(messages.sortByJoined);
+        default:
+          return intl.formatMessage(messages.sortBy, { field: sortKey });
+      }
+    };
+
+    return (
+      <Table.TH
+        className="cursor-pointer"
+        onClick={() => onSortChange(sortKey)}
+        data-testid={`column-header-${sortKey}`}
+        title={getTooltip()}
+      >
+        <div className="flex items-center">
+          <span>{children}</span>
+          {currentSort === sortKey && (
+            <span className="ml-1">
+              {sortDirection === 'asc' ? (
+                <ChevronUpIcon className="h-4 w-4" />
+              ) : (
+                <ChevronDownIcon className="h-4 w-4" />
+              )}
+            </span>
+          )}
+        </div>
+      </Table.TH>
+    );
+  };
+
+  useEffect(() => {
+    if (
+      previousSearchQueryRef.current !== undefined &&
+      previousSearchQueryRef.current !== searchQuery &&
+      page > 1
+    ) {
+      updateQueryParams('page', '1');
+    }
+    previousSearchQueryRef.current = searchQuery;
+  }, [searchQuery, page, updateQueryParams]);
+
+  useEffect(() => {
+    if (isSearchFocusedRef.current) {
+      searchInputRef.current?.focus();
+    }
+  }, [data]);
 
   const isUserPermsEditable = (userId: number) =>
     userId !== 1 && userId !== currentUser?.id;
@@ -189,7 +322,7 @@ const UserList = () => {
         appearance: 'success',
       });
       setDeleteModal({ isOpen: false, user: deleteModal.user });
-    } catch (e) {
+    } catch {
       addToast(intl.formatMessage(messages.userdeleteerror), {
         autoDismiss: true,
         appearance: 'error',
@@ -210,7 +343,11 @@ const UserList = () => {
     ),
     email: Yup.string()
       .required()
-      .email(intl.formatMessage(messages.validationEmail)),
+      .test(
+        'email',
+        intl.formatMessage(messages.validationEmail),
+        (value) => !value || validator.isEmail(value, { require_tld: false })
+      ),
     password: Yup.lazy((value) =>
       !value
         ? Yup.string()
@@ -531,40 +668,84 @@ const UserList = () => {
                       mediaServerName: 'Emby',
                     })
                   : settings.currentSettings.mediaServerType ===
-                    MediaServerType.PLEX
-                  ? intl.formatMessage(messages.importfrommediaserver, {
-                      mediaServerName: 'Plex',
-                    })
-                  : intl.formatMessage(messages.importfrommediaserver, {
-                      mediaServerName: 'Jellyfin',
-                    })}
+                      MediaServerType.PLEX
+                    ? intl.formatMessage(messages.importfrommediaserver, {
+                        mediaServerName: 'Plex',
+                      })
+                    : intl.formatMessage(messages.importfrommediaserver, {
+                        mediaServerName: 'Jellyfin',
+                      })}
               </span>
             </Button>
           </div>
-          <div className="mb-2 flex flex-grow lg:mb-0 lg:flex-grow-0">
-            <span className="inline-flex cursor-default items-center rounded-l-md border border-r-0 border-gray-500 bg-gray-800 px-3 text-sm text-gray-100">
-              <BarsArrowDownIcon className="h-6 w-6" />
-            </span>
-            <select
-              id="sort"
-              name="sort"
-              onChange={(e) => {
-                setCurrentSort(e.target.value as Sort);
-                router.push(router.pathname);
-              }}
-              value={currentSort}
-              className="rounded-r-only"
-            >
-              <option value="created">
-                {intl.formatMessage(messages.sortCreated)}
-              </option>
-              <option value="requests">
-                {intl.formatMessage(messages.sortRequests)}
-              </option>
-              <option value="displayname">
-                {intl.formatMessage(messages.sortDisplayName)}
-              </option>
-            </select>
+          <div className="mb-2 flex flex-grow flex-col gap-2 sm:flex-row lg:mb-0 lg:flex-grow-0">
+            <div className="flex flex-grow lg:flex-grow-0">
+              <span className="inline-flex cursor-default items-center rounded-l-md border border-r-0 border-gray-500 bg-gray-800 px-3 text-sm text-gray-100">
+                <MagnifyingGlassIcon className="h-6 w-6" />
+              </span>
+              <input
+                ref={searchInputRef}
+                type="text"
+                className="rounded-r-only min-w-48"
+                placeholder={intl.formatMessage(messages.searchUsers)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onFocus={() => {
+                  isSearchFocusedRef.current = true;
+                }}
+                onBlur={() => {
+                  isSearchFocusedRef.current = false;
+                }}
+                aria-label={intl.formatMessage(messages.searchUsers)}
+              />
+            </div>
+            <div className="flex flex-grow lg:flex-grow-0">
+              <button
+                type="button"
+                className="inline-flex cursor-pointer items-center rounded-l-md border border-r-0 border-gray-500 bg-gray-800 px-3 text-sm text-gray-100"
+                onClick={() => {
+                  setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                  updateQueryParams('page', '1');
+                }}
+                aria-label={intl.formatMessage(
+                  messages.toggleSortDirectionAria
+                )}
+                title={
+                  sortDirection === 'asc'
+                    ? intl.formatMessage(messages.descending)
+                    : intl.formatMessage(messages.ascending)
+                }
+              >
+                {sortDirection === 'asc' ? (
+                  <BarsArrowUpIcon className="h-6 w-6" />
+                ) : (
+                  <BarsArrowDownIcon className="h-6 w-6" />
+                )}
+              </button>
+              <select
+                id="sort"
+                name="sort"
+                onChange={(e) => handleSortChange(e.target.value as Sort)}
+                value={currentSort}
+                className="rounded-r-only"
+              >
+                <option value="displayname">
+                  {intl.formatMessage(messages.username)}
+                </option>
+                <option value="requests">
+                  {intl.formatMessage(messages.totalrequests)}
+                </option>
+                <option value="usertype">
+                  {intl.formatMessage(messages.accounttype)}
+                </option>
+                <option value="role">
+                  {intl.formatMessage(messages.role)}
+                </option>
+                <option value="created">
+                  {intl.formatMessage(messages.created)}
+                </option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
@@ -584,21 +765,59 @@ const UserList = () => {
                 />
               )}
             </Table.TH>
-            <Table.TH>{intl.formatMessage(messages.user)}</Table.TH>
-            <Table.TH>{intl.formatMessage(messages.totalrequests)}</Table.TH>
-            <Table.TH>{intl.formatMessage(messages.accounttype)}</Table.TH>
-            <Table.TH>{intl.formatMessage(messages.role)}</Table.TH>
-            <Table.TH>{intl.formatMessage(messages.created)}</Table.TH>
-            <Table.TH className="text-right">
+            <SortableColumnHeader
+              sortKey="displayname"
+              currentSort={currentSort}
+              sortDirection={sortDirection}
+              onSortChange={handleSortChange}
+            >
+              {intl.formatMessage(messages.user)}
+            </SortableColumnHeader>
+            <SortableColumnHeader
+              sortKey="requests"
+              currentSort={currentSort}
+              sortDirection={sortDirection}
+              onSortChange={handleSortChange}
+            >
+              {intl.formatMessage(messages.totalrequests)}
+            </SortableColumnHeader>
+            <SortableColumnHeader
+              sortKey="usertype"
+              currentSort={currentSort}
+              sortDirection={sortDirection}
+              onSortChange={handleSortChange}
+            >
+              {intl.formatMessage(messages.accounttype)}
+            </SortableColumnHeader>
+            <SortableColumnHeader
+              sortKey="role"
+              currentSort={currentSort}
+              sortDirection={sortDirection}
+              onSortChange={handleSortChange}
+            >
+              {intl.formatMessage(messages.role)}
+            </SortableColumnHeader>
+            <SortableColumnHeader
+              sortKey="created"
+              currentSort={currentSort}
+              sortDirection={sortDirection}
+              onSortChange={handleSortChange}
+            >
+              {intl.formatMessage(messages.created)}
+            </SortableColumnHeader>
+            <Table.TH className="w-1/12 min-w-[12rem] whitespace-nowrap text-right">
               {(data.results ?? []).length > 1 && (
-                <Button
-                  buttonType="warning"
-                  onClick={() => setShowBulkEditModal(true)}
-                  disabled={selectedUsers.length === 0}
-                >
-                  <PencilIcon />
-                  <span>{intl.formatMessage(messages.bulkedit)}</span>
-                </Button>
+                <div className="flex justify-end">
+                  <Button
+                    buttonType="warning"
+                    className="w-full"
+                    onClick={() => setShowBulkEditModal(true)}
+                    disabled={selectedUsers.length === 0}
+                  >
+                    <PencilIcon />
+                    <span>{intl.formatMessage(messages.bulkedit)}</span>
+                  </Button>
+                </div>
               )}
             </Table.TH>
           </tr>
@@ -700,8 +919,8 @@ const UserList = () => {
                 {user.id === 1
                   ? intl.formatMessage(messages.owner)
                   : hasPermission(Permission.ADMIN, user.permissions)
-                  ? intl.formatMessage(messages.admin)
-                  : intl.formatMessage(messages.user)}
+                    ? intl.formatMessage(messages.admin)
+                    : intl.formatMessage(messages.user)}
               </Table.TD>
               <Table.TD>
                 {intl.formatDate(user.createdAt, {
@@ -711,30 +930,31 @@ const UserList = () => {
                 })}
               </Table.TD>
               <Table.TD alignText="right">
-                <Button
-                  buttonType="warning"
-                  disabled={user.id === 1 && currentUser?.id !== 1}
-                  className="mr-2"
-                  onClick={() =>
-                    router.push(
-                      '/users/[userId]/settings',
-                      `/users/${user.id}/settings`
-                    )
-                  }
-                >
-                  {intl.formatMessage(globalMessages.edit)}
-                </Button>
-                <Button
-                  buttonType="danger"
-                  disabled={
-                    user.id === 1 ||
-                    (currentUser?.id !== 1 &&
-                      hasPermission(Permission.ADMIN, user.permissions))
-                  }
-                  onClick={() => setDeleteModal({ isOpen: true, user })}
-                >
-                  {intl.formatMessage(globalMessages.delete)}
-                </Button>
+                <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 sm:gap-2">
+                  <Button
+                    buttonType="warning"
+                    disabled={user.id === 1 && currentUser?.id !== 1}
+                    onClick={() =>
+                      router.push(
+                        '/users/[userId]/settings',
+                        `/users/${user.id}/settings`
+                      )
+                    }
+                  >
+                    {intl.formatMessage(globalMessages.edit)}
+                  </Button>
+                  <Button
+                    buttonType="danger"
+                    disabled={
+                      user.id === 1 ||
+                      (currentUser?.id !== 1 &&
+                        hasPermission(Permission.ADMIN, user.permissions))
+                    }
+                    onClick={() => setDeleteModal({ isOpen: true, user })}
+                  >
+                    {intl.formatMessage(globalMessages.delete)}
+                  </Button>
+                </div>
               </Table.TD>
             </tr>
           ))}

@@ -6,6 +6,7 @@ import PageTitle from '@app/components/Common/PageTitle';
 import SensitiveInput from '@app/components/Common/SensitiveInput';
 import LibraryItem from '@app/components/Settings/LibraryItem';
 import SettingsBadge from '@app/components/Settings/SettingsBadge';
+import useToasts from '@app/hooks/useToasts';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { isValidURL } from '@app/utils/urlValidationHelper';
@@ -22,7 +23,6 @@ import { Field, Formik } from 'formik';
 import { orderBy } from 'lodash';
 import { useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR from 'swr';
 import * as Yup from 'yup';
 
@@ -30,7 +30,7 @@ const messages = defineMessages('components.Settings', {
   plex: 'Plex',
   plexsettings: 'Plex Settings',
   plexsettingsDescription:
-    'Configure the settings for your Plex server. Jellyseerr scans your Plex libraries to determine content availability.',
+    'Configure the settings for your Plex server. Seerr scans your Plex libraries to determine content availability.',
   serverpreset: 'Server',
   serverLocal: 'local',
   serverRemote: 'remote',
@@ -41,6 +41,9 @@ const messages = defineMessages('components.Settings', {
   toastPlexRefresh: 'Retrieving server list from Plex…',
   toastPlexRefreshSuccess: 'Plex server list retrieved successfully!',
   toastPlexRefreshFailure: 'Failed to retrieve Plex server list.',
+  toastPlexSyncFailure: 'Failed to sync Plex libraries.',
+  invalidurlerror: 'Unable to connect to {mediaServerName} server.',
+  toggleLibraryFailure: 'Failed to update library.',
   toastPlexConnecting: 'Attempting to connect to Plex…',
   toastPlexConnectingSuccess: 'Plex connection established successfully!',
   toastPlexConnectingFailure: 'Failed to connect to Plex.',
@@ -51,12 +54,12 @@ const messages = defineMessages('components.Settings', {
   enablessl: 'Use SSL',
   plexlibraries: 'Plex Libraries',
   plexlibrariesDescription:
-    'The libraries Jellyseerr scans for titles. Set up and save your Plex connection settings, then click the button below if no libraries are listed.',
+    'The libraries Seerr scans for titles. Set up and save your Plex connection settings, then click the button below if no libraries are listed.',
   scanning: 'Syncing…',
   scan: 'Sync Libraries',
   manualscan: 'Manual Library Scan',
   manualscanDescription:
-    "Normally, this will only be run once every 24 hours. Jellyseerr will check your Plex server's recently added more aggressively. If this is your first time configuring Plex, a one-time full manual library scan is recommended!",
+    "Normally, this will only be run once every 24 hours. Seerr will check your Plex server's recently added more aggressively. If this is your first time configuring Plex, a one-time full manual library scan is recommended!",
   notrunning: 'Not Running',
   currentlibrary: 'Current Library: {name}',
   librariesRemaining: 'Libraries Remaining: {count}',
@@ -66,10 +69,10 @@ const messages = defineMessages('components.Settings', {
   validationPortRequired: 'You must provide a valid port number',
   webAppUrl: '<WebAppLink>Web App</WebAppLink> URL',
   webAppUrlTip:
-    'Optionally direct users to the web app on your server instead of the "hosted" web app',
+    'Optionally direct users to the web app on your server instead of https://app.plex.tv/desktop',
   tautulliSettings: 'Tautulli Settings',
   tautulliSettingsDescription:
-    'Optionally configure the settings for your Tautulli server. Jellyseerr fetches watch history data for your Plex media from Tautulli.',
+    'Optionally configure the settings for your Tautulli server. Seerr fetches watch history data for your Plex media from Tautulli.',
   urlBase: 'URL Base',
   tautulliApiKey: 'API Key',
   externalUrl: 'External URL',
@@ -108,10 +111,10 @@ interface PresetServerDisplay {
   message?: string;
 }
 interface SettingsPlexProps {
-  onComplete?: () => void;
+  isSetupSettings?: boolean;
 }
 
-const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
+const SettingsPlex = ({ isSetupSettings }: SettingsPlexProps) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRefreshingPresets, setIsRefreshingPresets] = useState(false);
   const [availableServers, setAvailableServers] = useState<PlexDevice[] | null>(
@@ -122,12 +125,17 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
     error,
     mutate: revalidate,
   } = useSWR<PlexSettings>('/api/v1/settings/plex');
-  const { data: dataTautulli, mutate: revalidateTautulli } =
-    useSWR<TautulliSettings>('/api/v1/settings/tautulli');
+  const {
+    data: dataTautulli,
+    error: errorTautulli,
+    mutate: revalidateTautulli,
+  } = useSWR<TautulliSettings>(
+    isSetupSettings ? null : '/api/v1/settings/tautulli'
+  );
   const { data: dataSync, mutate: revalidateSync } = useSWR<SyncStatus>(
     '/api/v1/settings/plex/sync',
     {
-      refreshInterval: 1000,
+      refreshInterval: (latestData) => (latestData?.running ? 1000 : 10000),
     }
   );
   const intl = useIntl();
@@ -150,10 +158,13 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
       tautulliHostname: Yup.string()
         .when(['tautulliPort', 'tautulliApiKey'], {
           is: (value: unknown) => !!value,
-          then: Yup.string()
-            .nullable()
-            .required(intl.formatMessage(messages.validationHostnameRequired)),
-          otherwise: Yup.string().nullable(),
+          then: (schema) =>
+            schema
+              .nullable()
+              .required(
+                intl.formatMessage(messages.validationHostnameRequired)
+              ),
+          otherwise: (schema) => schema.nullable(),
         })
         .matches(
           /^(([a-z]|\d|_|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*)?([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])$/i,
@@ -161,13 +172,15 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
         ),
       tautulliPort: Yup.number().when(['tautulliHostname', 'tautulliApiKey'], {
         is: (value: unknown) => !!value,
-        then: Yup.number()
-          .typeError(intl.formatMessage(messages.validationPortRequired))
-          .nullable()
-          .required(intl.formatMessage(messages.validationPortRequired)),
-        otherwise: Yup.number()
-          .typeError(intl.formatMessage(messages.validationPortRequired))
-          .nullable(),
+        then: (schema) =>
+          schema
+            .typeError(intl.formatMessage(messages.validationPortRequired))
+            .nullable()
+            .required(intl.formatMessage(messages.validationPortRequired)),
+        otherwise: (schema) =>
+          schema
+            .typeError(intl.formatMessage(messages.validationPortRequired))
+            .nullable(),
       }),
       tautulliUrlBase: Yup.string()
         .test(
@@ -182,10 +195,11 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
         ),
       tautulliApiKey: Yup.string().when(['tautulliHostname', 'tautulliPort'], {
         is: (value: unknown) => !!value,
-        then: Yup.string()
-          .nullable()
-          .required(intl.formatMessage(messages.validationApiKey)),
-        otherwise: Yup.string().nullable(),
+        then: (schema) =>
+          schema
+            .nullable()
+            .required(intl.formatMessage(messages.validationApiKey)),
+        otherwise: (schema) => schema.nullable(),
       }),
       tautulliExternalUrl: Yup.string()
         .test(
@@ -234,19 +248,24 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
   const syncLibraries = async () => {
     setIsSyncing(true);
 
-    const params: { sync: boolean; enable?: string } = {
-      sync: true,
-    };
-
-    if (activeLibraries.length > 0) {
-      params.enable = activeLibraries.join(',');
+    try {
+      await axios.post('/api/v1/settings/plex/library/sync');
+    } catch (e) {
+      addToast(
+        e?.response?.data?.message === 'CONNECTION_ERROR'
+          ? intl.formatMessage(messages.invalidurlerror, {
+              mediaServerName: 'Plex',
+            })
+          : intl.formatMessage(messages.toastPlexSyncFailure),
+        {
+          autoDismiss: true,
+          appearance: 'error',
+        }
+      );
+    } finally {
+      setIsSyncing(false);
+      revalidate();
     }
-
-    await axios.get('/api/v1/settings/plex/library', {
-      params,
-    });
-    setIsSyncing(false);
-    revalidate();
   };
 
   const refreshPresetServers = async () => {
@@ -276,7 +295,7 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
         autoDismiss: true,
         appearance: 'success',
       });
-    } catch (e) {
+    } catch {
       if (toastId) {
         removeToast(toastId);
       }
@@ -305,34 +324,26 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
 
   const toggleLibrary = async (libraryId: string) => {
     setIsSyncing(true);
-    if (activeLibraries.includes(libraryId)) {
-      const params: { enable?: string } = {};
-
-      if (activeLibraries.length > 1) {
-        params.enable = activeLibraries
-          .filter((id) => id !== libraryId)
-          .join(',');
-      }
-
-      await axios.get('/api/v1/settings/plex/library', {
-        params,
+    try {
+      await axios.put(`/api/v1/settings/plex/library/${libraryId}`, {
+        enabled: !activeLibraries.includes(libraryId),
       });
-    } else {
-      await axios.get('/api/v1/settings/plex/library', {
-        params: {
-          enable: [...activeLibraries, libraryId].join(','),
-        },
+    } catch {
+      addToast(intl.formatMessage(messages.toggleLibraryFailure), {
+        autoDismiss: true,
+        appearance: 'error',
       });
+    } finally {
+      setIsSyncing(false);
+      revalidate();
     }
-
-    if (onComplete) {
-      onComplete();
-    }
-    setIsSyncing(false);
-    revalidate();
   };
 
-  if ((!data || !dataTautulli) && !error) {
+  if (
+    (!data || (!isSetupSettings && !dataTautulli)) &&
+    !error &&
+    !errorTautulli
+  ) {
     return <LoadingSpinner />;
   }
   return (
@@ -348,7 +359,7 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
         <p className="description">
           {intl.formatMessage(messages.plexsettingsDescription)}
         </p>
-        {!!onComplete && (
+        {isSetupSettings && (
           <div className="section">
             <Alert
               title={intl.formatMessage(messages.settingUpPlexDescription, {
@@ -377,6 +388,7 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
           webAppUrl: data?.webAppUrl,
         }}
         validationSchema={PlexSettingsSchema}
+        validateOnMount={true}
         onSubmit={async (values) => {
           let toastId: string | null = null;
           try {
@@ -406,7 +418,7 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
               autoDismiss: true,
               appearance: 'success',
             });
-          } catch (e) {
+          } catch {
             if (toastId) {
               removeToast(toastId);
             }
@@ -423,6 +435,7 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
           values,
           handleSubmit,
           setFieldValue,
+          setValues,
           isSubmitting,
           isValid,
         }) => {
@@ -445,9 +458,12 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
                           availablePresets[Number(e.target.value)];
 
                         if (targPreset) {
-                          setFieldValue('hostname', targPreset.address);
-                          setFieldValue('port', targPreset.port);
-                          setFieldValue('useSsl', targPreset.ssl);
+                          setValues({
+                            ...values,
+                            hostname: targPreset.address,
+                            port: targPreset.port,
+                            useSsl: targPreset.ssl,
+                          });
                         }
                       }}
                     >
@@ -475,12 +491,12 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
                                 ? intl.formatMessage(messages.serverLocal)
                                 : intl.formatMessage(messages.serverRemote)
                             }]${
-                            server.ssl
-                              ? ` [${intl.formatMessage(
-                                  messages.serverSecure
-                                )}]`
-                              : ''
-                          }
+                              server.ssl
+                                ? ` [${intl.formatMessage(
+                                    messages.serverSecure
+                                  )}]`
+                                : ''
+                            }
                             ${server.status ? '' : '(' + server.message + ')'}
                           `}
                         </option>
@@ -586,7 +602,7 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
                       inputMode="url"
                       id="webAppUrl"
                       name="webAppUrl"
-                      placeholder="https://app.plex.tv/desktop"
+                      placeholder="https://your-server-fqdn.com/web/index.html"
                     />
                   </div>
                   {errors.webAppUrl &&
@@ -618,7 +634,7 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
           );
         }}
       </Formik>
-      <div className="mt-10 mb-6">
+      <div className="mb-6 mt-10">
         <h3 className="heading">
           {intl.formatMessage(messages.plexlibraries)}
         </h3>
@@ -652,7 +668,7 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
           ))}
         </ul>
       </div>
-      <div className="mt-10 mb-6">
+      <div className="mb-6 mt-10">
         <h3 className="heading">{intl.formatMessage(messages.manualscan)}</h3>
         <p className="description">
           {intl.formatMessage(messages.manualscanDescription)}
@@ -727,9 +743,9 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
           </div>
         </div>
       </div>
-      {!onComplete && (
+      {!isSetupSettings && (
         <>
-          <div className="mt-10 mb-6">
+          <div className="mb-6 mt-10">
             <h3 className="heading">
               {intl.formatMessage(messages.tautulliSettings)}
             </h3>
@@ -765,7 +781,7 @@ const SettingsPlex = ({ onComplete }: SettingsPlexProps) => {
                     appearance: 'success',
                   }
                 );
-              } catch (e) {
+              } catch {
                 addToast(
                   intl.formatMessage(messages.toastTautulliSettingsFailure),
                   {

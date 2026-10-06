@@ -1,17 +1,21 @@
 import RadarrAPI from '@server/api/servarr/radarr';
 import SonarrAPI from '@server/api/servarr/sonarr';
-import { MediaStatus, MediaType } from '@server/constants/media';
+import {
+  MediaRequestStatus,
+  MediaStatus,
+  MediaType,
+} from '@server/constants/media';
 import { MediaServerType } from '@server/constants/server';
 import { getRepository } from '@server/datasource';
-import { Blacklist } from '@server/entity/Blacklist';
+import { Blocklist } from '@server/entity/Blocklist';
 import type { User } from '@server/entity/User';
 import { Watchlist } from '@server/entity/Watchlist';
 import type { DownloadingItem } from '@server/lib/downloadtracker';
 import downloadTracker from '@server/lib/downloadtracker';
+import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
-import { DbAwareColumn } from '@server/utils/DbColumnHelper';
-import { getHostname } from '@server/utils/getHostname';
+import { DbAwareColumn, resolveDbType } from '@server/utils/DbColumnHelper';
 import {
   AfterLoad,
   Column,
@@ -20,30 +24,28 @@ import {
   OneToMany,
   OneToOne,
   PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import Issue from './Issue';
 import { MediaRequest } from './MediaRequest';
 import Season from './Season';
 
 @Entity()
+@Index(['tmdbId', 'mediaType'])
 class Media {
   public static async getRelatedMedia(
     user: User | undefined,
-    tmdbIds: number | number[]
+    items: { tmdbId: number; mediaType: string }[],
+    { includeActiveRequest = false }: { includeActiveRequest?: boolean } = {}
   ): Promise<Media[]> {
     const mediaRepository = getRepository(Media);
 
     try {
-      let finalIds: number[];
-      if (!Array.isArray(tmdbIds)) {
-        finalIds = [tmdbIds];
-      } else {
-        finalIds = tmdbIds;
-      }
-
-      if (finalIds.length === 0) {
+      if (items.length === 0) {
         return [];
       }
+
+      const finalIds = [...new Set(items.map((i) => i.tmdbId))];
 
       const media = await mediaRepository
         .createQueryBuilder('media')
@@ -52,11 +54,40 @@ class Media {
           'watchlist',
           'media.id= watchlist.media and watchlist.requestedBy = :userId',
           { userId: user?.id }
-        ) //,
+        )
         .where(' media.tmdbId in (:...finalIds)', { finalIds })
         .getMany();
 
-      return media;
+      const relatedMedia = media.filter((m) =>
+        items.some((i) => i.tmdbId === m.tmdbId && i.mediaType === m.mediaType)
+      );
+
+      if (
+        includeActiveRequest &&
+        getSettings().main.hideRequested &&
+        relatedMedia.length > 0
+      ) {
+        const activeRequestMediaIds = await mediaRepository
+          .createQueryBuilder('media')
+          .select('media.id', 'id')
+          .distinct(true)
+          .innerJoin('media.requests', 'request')
+          .where('media.id IN (:...mediaIds)', {
+            mediaIds: relatedMedia.map((m) => m.id),
+          })
+          .andWhere('request.status IN (:...statuses)', {
+            statuses: [MediaRequestStatus.PENDING, MediaRequestStatus.APPROVED],
+          })
+          .getRawMany<{ id: number }>();
+
+        const activeIds = new Set(activeRequestMediaIds.map((row) => row.id));
+
+        relatedMedia.forEach((m) => {
+          m.hasActiveRequest = activeIds.has(m.id);
+        });
+      }
+
+      return relatedMedia;
     } catch (e) {
       logger.error(e.message);
       return [];
@@ -101,9 +132,11 @@ class Media {
   public imdbId?: string;
 
   @Column({ type: 'int', default: MediaStatus.UNKNOWN })
+  @Index()
   public status: MediaStatus;
 
   @Column({ type: 'int', default: MediaStatus.UNKNOWN })
+  @Index()
   public status4k: MediaStatus;
 
   @OneToMany(() => MediaRequest, (request) => request.media, {
@@ -123,16 +156,15 @@ class Media {
   @OneToMany(() => Issue, (issue) => issue.media, { cascade: true })
   public issues: Issue[];
 
-  @OneToOne(() => Blacklist, (blacklist) => blacklist.media)
-  public blacklist: Promise<Blacklist>;
+  @OneToOne(() => Blocklist, (blocklist) => blocklist.media)
+  public blocklist: Promise<Blocklist>;
 
   @DbAwareColumn({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   public createdAt: Date;
 
-  @DbAwareColumn({
-    type: 'datetime',
+  @UpdateDateColumn({
+    type: resolveDbType('datetime'),
     default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
   })
   public updatedAt: Date;
 
@@ -187,6 +219,7 @@ class Media {
 
   public serviceUrl?: string;
   public serviceUrl4k?: string;
+  public hasActiveRequest?: boolean;
   public downloadStatus?: DownloadingItem[] = [];
   public downloadStatus4k?: DownloadingItem[] = [];
 
@@ -203,6 +236,23 @@ class Media {
     Object.assign(this, init);
   }
 
+  public resetServiceData(is4k?: boolean): void {
+    if (is4k === undefined || !is4k) {
+      this.serviceId = null;
+      this.externalServiceId = null;
+      this.externalServiceSlug = null;
+      this.ratingKey = null;
+      this.jellyfinMediaId = null;
+    }
+    if (is4k === undefined || is4k) {
+      this.serviceId4k = null;
+      this.externalServiceId4k = null;
+      this.externalServiceSlug4k = null;
+      this.ratingKey4k = null;
+      this.jellyfinMediaId4k = null;
+    }
+  }
+
   @AfterLoad()
   public setPlexUrls(): void {
     const { machineId, webAppUrl } = getSettings().plex;
@@ -210,47 +260,38 @@ class Media {
 
     if (getSettings().main.mediaServerType == MediaServerType.PLEX) {
       if (this.ratingKey) {
-        this.mediaUrl = `${webAppUrl ? webAppUrl : 'https://app.plex.tv/desktop'
-          }#!/server/${machineId}/details?key=%2Flibrary%2Fmetadata%2F${this.ratingKey
-          }`;
+        this.mediaUrl = `${
+          webAppUrl ? webAppUrl : 'https://app.plex.tv/desktop'
+        }#!/server/${machineId}/details?key=%2Flibrary%2Fmetadata%2F${
+          this.ratingKey
+        }`;
 
         this.iOSPlexUrl = `plex://preplay/?metadataKey=%2Flibrary%2Fmetadata%2F${this.ratingKey}&server=${machineId}`;
 
         if (tautulliUrl) {
           this.tautulliUrl = `${tautulliUrl}/info?rating_key=${this.ratingKey}`;
         }
+      }
 
-        if (this.ratingKey4k) {
-          this.mediaUrl4k = `${webAppUrl ? webAppUrl : 'https://app.plex.tv/desktop'
-            }#!/server/${machineId}/details?key=%2Flibrary%2Fmetadata%2F${this.ratingKey4k
-            }`;
+      if (this.ratingKey4k) {
+        this.mediaUrl4k = `${
+          webAppUrl ? webAppUrl : 'https://app.plex.tv/desktop'
+        }#!/server/${machineId}/details?key=%2Flibrary%2Fmetadata%2F${
+          this.ratingKey4k
+        }`;
 
-          this.iOSPlexUrl4k = `plex://preplay/?metadataKey=%2Flibrary%2Fmetadata%2F${this.ratingKey4k}&server=${machineId}`;
+        this.iOSPlexUrl4k = `plex://preplay/?metadataKey=%2Flibrary%2Fmetadata%2F${this.ratingKey4k}&server=${machineId}`;
 
-          if (tautulliUrl) {
-            this.tautulliUrl4k = `${tautulliUrl}/info?rating_key=${this.ratingKey4k}`;
-          }
+        if (tautulliUrl) {
+          this.tautulliUrl4k = `${tautulliUrl}/info?rating_key=${this.ratingKey4k}`;
         }
       }
     } else {
-      // const pageName =
-      //   process.env.JELLYFIN_TYPE === 'emby' ? 'item' : 'details';
-      // const { serverId, hostname, externalHostname } = getSettings().jellyfin;
-      // let jellyfinHost =
-      //   externalHostname && externalHostname.length > 0
-      //     ? externalHostname
-      //     : hostname;
-
-      // jellyfinHost = jellyfinHost.endsWith('/')
-      //   ? jellyfinHost.slice(0, -1)
-      //   : jellyfinHost;
-
-      const mediaUrl = `https://sluthub.is/#/item/${this.jellyfinMediaId}`;
       if (this.jellyfinMediaId) {
-        this.mediaUrl = mediaUrl;
+        this.mediaUrl = `https://sluthub.is/#/item/${this.jellyfinMediaId}`;
       }
       if (this.jellyfinMediaId4k) {
-        this.mediaUrl4k = mediaUrl;
+        this.mediaUrl4k = `https://sluthub.is/#/item/${this.jellyfinMediaId4k}`;
       }
     }
   }
@@ -281,9 +322,9 @@ class Media {
           this.serviceUrl4k = server.externalUrl
             ? `${server.externalUrl}/movie/${this.externalServiceSlug4k}`
             : RadarrAPI.buildUrl(
-              server,
-              `/movie/${this.externalServiceSlug4k}`
-            );
+                server,
+                `/movie/${this.externalServiceSlug4k}`
+              );
         }
       }
     }
@@ -312,9 +353,9 @@ class Media {
           this.serviceUrl4k = server.externalUrl
             ? `${server.externalUrl}/series/${this.externalServiceSlug4k}`
             : SonarrAPI.buildUrl(
-              server,
-              `/series/${this.externalServiceSlug4k}`
-            );
+                server,
+                `/series/${this.externalServiceSlug4k}`
+              );
         }
       }
     }
@@ -373,6 +414,38 @@ class Media {
         );
       }
     }
+  }
+
+  public filter(user?: User): Media {
+    const canViewIssues =
+      user?.hasPermission(
+        [
+          Permission.MANAGE_ISSUES,
+          Permission.VIEW_ISSUES,
+          Permission.CREATE_ISSUES,
+        ],
+        { type: 'or' }
+      ) ?? false;
+
+    return {
+      ...this,
+      requests: (this.requests ?? []).map((request) => ({
+        ...request,
+        requestedBy: request.requestedBy?.filter(),
+        modifiedBy: request.modifiedBy?.filter(),
+      })),
+      // the detail pages call issues.filter() without a null check
+      issues: canViewIssues
+        ? (this.issues ?? []).map(
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            ({ comments, problemSeason, problemEpisode, ...issue }) => ({
+              ...issue,
+              createdBy: issue.createdBy?.filter(),
+              modifiedBy: issue.modifiedBy?.filter(),
+            })
+          )
+        : [],
+    } as Media;
   }
 }
 

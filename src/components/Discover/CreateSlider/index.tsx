@@ -4,6 +4,7 @@ import { sliderTitles } from '@app/components/Discover/constants';
 import MediaSlider from '@app/components/MediaSlider';
 import { WatchProviderSelector } from '@app/components/Selector';
 import { encodeURIExtraParams } from '@app/hooks/useDiscover';
+import useToasts from '@app/hooks/useToasts';
 import defineMessages from '@app/utils/defineMessages';
 import type {
   TmdbCompanySearchResponse,
@@ -19,7 +20,6 @@ import { Field, Form, Formik } from 'formik';
 import { useCallback, useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import AsyncSelect from 'react-select/async';
-import { useToasts } from 'react-toast-notifications';
 import * as Yup from 'yup';
 
 const messages = defineMessages('components.Discover.CreateSlider', {
@@ -77,16 +77,19 @@ const CreateSlider = ({ onCreate, slider }: CreateSliderProps) => {
 
         const keywords = await Promise.all(
           slider.data.split(',').map(async (keywordId) => {
-            const keyword = await axios.get<Keyword>(
+            const keyword = await axios.get<Keyword | null>(
               `/api/v1/keyword/${keywordId}`
             );
-
             return keyword.data;
           })
         );
 
+        const validKeywords: Keyword[] = keywords.filter(
+          (keyword): keyword is Keyword => keyword !== null
+        );
+
         setDefaultDataValue(
-          keywords.map((keyword) => ({
+          validKeywords.map((keyword) => ({
             label: keyword.name,
             value: keyword.id,
           }))
@@ -338,7 +341,7 @@ const CreateSlider = ({ onCreate, slider }: CreateSliderProps) => {
           );
           onCreate();
           resetForm();
-        } catch (e) {
+        } catch {
           addToast(
             intl.formatMessage(slider ? messages.editfail : messages.addfail),
             {
@@ -505,7 +508,7 @@ const CreateSlider = ({ onCreate, slider }: CreateSliderProps) => {
                 typeof errors.data === 'string' && (
                   <div className="error">{errors.data}</div>
                 )}
-              <div className="flex-1"></div>
+              <div className="flex-1" />
               {resultCount === 0 ? (
                 <Tooltip content={intl.formatMessage(messages.needresults)}>
                   <div>

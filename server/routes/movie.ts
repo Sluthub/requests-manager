@@ -27,13 +27,18 @@ movieRoutes.get('/:id', async (req, res, next) => {
     const onUserWatchlist = await getRepository(Watchlist).exist({
       where: {
         tmdbId: Number(req.params.id),
+        mediaType: MediaType.MOVIE,
         requestedBy: {
           id: req.user?.id,
         },
       },
     });
 
-    const data = mapMovieDetails(tmdbMovie, media, onUserWatchlist);
+    const data = mapMovieDetails(
+      tmdbMovie,
+      media?.filter(req.user),
+      onUserWatchlist
+    );
 
     // TMDB issue where it doesnt fallback to English when no overview is available in requested locale.
     if (!data.overview) {
@@ -67,7 +72,11 @@ movieRoutes.get('/:id/recommendations', async (req, res, next) => {
 
     const media = await Media.getRelatedMedia(
       req.user,
-      results.results.map((result) => result.id)
+      results.results.map((result) => ({
+        tmdbId: result.id,
+        mediaType: MediaType.MOVIE,
+      })),
+      { includeActiveRequest: true }
     );
 
     return res.status(200).json({
@@ -109,7 +118,11 @@ movieRoutes.get('/:id/similar', async (req, res, next) => {
 
     const media = await Media.getRelatedMedia(
       req.user,
-      results.results.map((result) => result.id)
+      results.results.map((result) => ({
+        tmdbId: result.id,
+        mediaType: MediaType.MOVIE,
+      })),
+      { includeActiveRequest: true }
     );
 
     return res.status(200).json({

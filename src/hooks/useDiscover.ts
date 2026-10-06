@@ -1,4 +1,8 @@
+import useToasts from '@app/hooks/useToasts';
+import globalMessages from '@app/i18n/globalMessages';
 import { MediaStatus } from '@server/constants/media';
+import { useEffect } from 'react';
+import { useIntl } from 'react-intl';
 import useSWRInfinite from 'swr/infinite';
 import useSettings from './useSettings';
 import { Permission, useUser } from './useUser';
@@ -15,6 +19,7 @@ interface BaseMedia {
   mediaType: string;
   mediaInfo?: {
     status: MediaStatus;
+    hasActiveRequest?: boolean;
   };
 }
 
@@ -50,14 +55,16 @@ export const encodeURIExtraParams = (string: string): string => {
 const useDiscover = <
   T extends BaseMedia,
   S = Record<string, never>,
-  O = Record<string, unknown>
+  O = Record<string, unknown>,
 >(
   endpoint: string,
   options?: O,
-  { hideAvailable = true, hideBlacklisted = true } = {}
+  { hideAvailable = true, hideBlocklisted = true, hideRequested = true } = {}
 ): DiscoverResult<T, S> => {
   const settings = useSettings();
   const { hasPermission } = useUser();
+  const { addToast } = useToasts();
+  const intl = useIntl();
   const { data, error, size, setSize, isValidating, mutate } = useSWRInfinite<
     BaseSearchResult<T> & S
   >(
@@ -83,6 +90,8 @@ const useDiscover = <
     {
       initialSize: 3,
       revalidateFirstPage: false,
+      dedupingInterval: 30000,
+      revalidateOnFocus: false,
     }
   );
 
@@ -116,22 +125,32 @@ const useDiscover = <
   if (settings.currentSettings.hideAvailable && hideAvailable) {
     titles = titles.filter(
       (i) =>
-        (i.mediaType === 'movie' || i.mediaType === 'tv') &&
-        i.mediaInfo?.status !== MediaStatus.AVAILABLE &&
-        i.mediaInfo?.status !== MediaStatus.PARTIALLY_AVAILABLE
+        !(i.mediaType === 'movie' || i.mediaType === 'tv') ||
+        (i.mediaInfo?.status !== MediaStatus.AVAILABLE &&
+          i.mediaInfo?.status !== MediaStatus.PARTIALLY_AVAILABLE)
     );
   }
 
   if (
-    settings.currentSettings.hideBlacklisted &&
-    hideBlacklisted &&
-    hasPermission(Permission.MANAGE_BLACKLIST)
+    settings.currentSettings.hideBlocklisted &&
+    hideBlocklisted &&
+    hasPermission(Permission.MANAGE_BLOCKLIST)
   ) {
     titles = titles.filter(
       (i) =>
-        (i.mediaType === 'movie' || i.mediaType === 'tv') &&
-        i.mediaInfo?.status !== MediaStatus.BLACKLISTED
+        !(i.mediaType === 'movie' || i.mediaType === 'tv') ||
+        i.mediaInfo?.status !== MediaStatus.BLOCKLISTED
     );
+  }
+
+  if (settings.currentSettings.hideRequested && hideRequested) {
+    titles = titles.filter((i) => {
+      if (i.mediaType !== 'movie' && i.mediaType !== 'tv') {
+        return true;
+      }
+
+      return !i.mediaInfo?.hasActiveRequest;
+    });
   }
 
   const isEmpty = !isLoadingInitialData && titles?.length === 0;
@@ -141,13 +160,23 @@ const useDiscover = <
     (!!data && (data[data?.length - 1]?.totalResults ?? 0) <= size * 20) ||
     (!!data && (data[data?.length - 1]?.totalResults ?? 0) < 41);
 
+  useEffect(() => {
+    if (error && titles.length) {
+      addToast(intl.formatMessage(globalMessages.error), {
+        appearance: 'error',
+        autoDismiss: true,
+      });
+      console.error('Error while fetching discover titles:', error);
+    }
+  }, [data, error, addToast, intl, titles.length]);
+
   return {
     isLoadingInitialData,
     isLoadingMore,
     fetchMore,
     isEmpty,
     isReachingEnd,
-    error,
+    error: error && titles.length ? null : error,
     titles,
     firstResultData: data?.[0],
     mutate,

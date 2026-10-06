@@ -1,6 +1,8 @@
 import Button from '@app/components/Common/Button';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import NotificationTypeSelector from '@app/components/NotificationTypeSelector';
+import { availableLanguages } from '@app/context/LanguageContext';
+import useToasts from '@app/hooks/useToasts';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { ArrowDownOnSquareIcon, BeakerIcon } from '@heroicons/react/24/outline';
@@ -8,7 +10,6 @@ import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR from 'swr';
 import * as Yup from 'yup';
 
@@ -16,6 +17,7 @@ const messages = defineMessages(
   'components.Settings.Notifications.NotificationsSlack',
   {
     agentenabled: 'Enable Agent',
+    embedPoster: 'Embed Poster',
     webhookUrl: 'Webhook URL',
     webhookUrlTip:
       'Create an <WebhookLink>Incoming Webhook</WebhookLink> integration',
@@ -43,10 +45,11 @@ const NotificationsSlack = () => {
     webhookUrl: Yup.string()
       .when('enabled', {
         is: true,
-        then: Yup.string()
-          .nullable()
-          .required(intl.formatMessage(messages.validationWebhookUrl)),
-        otherwise: Yup.string().nullable(),
+        then: (schema) =>
+          schema
+            .nullable()
+            .required(intl.formatMessage(messages.validationWebhookUrl)),
+        otherwise: (schema) => schema.nullable(),
       })
       .url(intl.formatMessage(messages.validationWebhookUrl)),
   });
@@ -59,24 +62,28 @@ const NotificationsSlack = () => {
     <Formik
       initialValues={{
         enabled: data.enabled,
+        embedPoster: data.embedPoster,
         types: data.types,
         webhookUrl: data.options.webhookUrl,
+        locale: data?.options.locale ?? 'en',
       }}
       validationSchema={NotificationsSlackSchema}
       onSubmit={async (values) => {
         try {
           await axios.post('/api/v1/settings/notifications/slack', {
             enabled: values.enabled,
+            embedPoster: values.embedPoster,
             types: values.types,
             options: {
               webhookUrl: values.webhookUrl,
+              locale: values.locale,
             },
           });
           addToast(intl.formatMessage(messages.slacksettingssaved), {
             appearance: 'success',
             autoDismiss: true,
           });
-        } catch (e) {
+        } catch {
           addToast(intl.formatMessage(messages.slacksettingsfailed), {
             appearance: 'error',
             autoDismiss: true,
@@ -111,9 +118,11 @@ const NotificationsSlack = () => {
             );
             await axios.post('/api/v1/settings/notifications/slack/test', {
               enabled: true,
+              embedPoster: values.embedPoster,
               types: values.types,
               options: {
                 webhookUrl: values.webhookUrl,
+                locale: values.locale,
               },
             });
 
@@ -124,7 +133,7 @@ const NotificationsSlack = () => {
               autoDismiss: true,
               appearance: 'success',
             });
-          } catch (e) {
+          } catch {
             if (toastId) {
               removeToast(toastId);
             }
@@ -146,6 +155,14 @@ const NotificationsSlack = () => {
               </label>
               <div className="form-input-area">
                 <Field type="checkbox" id="enabled" name="enabled" />
+              </div>
+            </div>
+            <div className="form-row">
+              <label htmlFor="embedPoster" className="checkbox-label">
+                {intl.formatMessage(messages.embedPoster)}
+              </label>
+              <div className="form-input-area">
+                <Field type="checkbox" id="embedPoster" name="embedPoster" />
               </div>
             </div>
             <div className="form-row">
@@ -181,6 +198,30 @@ const NotificationsSlack = () => {
                   typeof errors.webhookUrl === 'string' && (
                     <div className="error">{errors.webhookUrl}</div>
                   )}
+              </div>
+            </div>
+            <div className="form-row">
+              <label htmlFor="locale" className="text-label">
+                {intl.formatMessage(globalMessages.notificationLocale)}
+              </label>
+              <div className="form-input-area">
+                <div className="form-input-field">
+                  <Field as="select" id="locale" name="locale">
+                    {(
+                      Object.keys(
+                        availableLanguages
+                      ) as (keyof typeof availableLanguages)[]
+                    ).map((key) => (
+                      <option
+                        key={key}
+                        value={availableLanguages[key].code}
+                        lang={availableLanguages[key].code}
+                      >
+                        {availableLanguages[key].display}
+                      </option>
+                    ))}
+                  </Field>
+                </div>
               </div>
             </div>
             <NotificationTypeSelector

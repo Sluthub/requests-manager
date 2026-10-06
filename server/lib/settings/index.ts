@@ -1,11 +1,18 @@
 import { MediaServerType } from '@server/constants/server';
 import { Permission } from '@server/lib/permissions';
 import { runMigrations } from '@server/lib/settings/migrator';
-import { randomUUID } from 'crypto';
+import type { AvailableLocale } from '@server/types/languages';
+import { randomBytes, randomUUID } from 'crypto';
 import fs from 'fs/promises';
-import { merge } from 'lodash';
+import { mergeWith } from 'lodash';
 import path from 'path';
 import webpush from 'web-push';
+
+// Prevents stale array entries when incoming data has fewer elements
+const mergeSettings = <T>(current: T, incoming: Partial<T>): T =>
+  mergeWith({}, current, incoming, (_objValue, srcValue) =>
+    Array.isArray(srcValue) ? srcValue : undefined
+  ) as T;
 
 export interface Library {
   id: string;
@@ -93,11 +100,22 @@ export interface SonarrSettings extends DVRSettings {
   activeLanguageProfileId?: number;
   animeTags?: number[];
   enableSeasonFolders: boolean;
+  monitorNewItems: 'all' | 'none';
 }
 
 interface Quota {
   quotaLimit?: number;
   quotaDays?: number;
+}
+
+export enum MetadataProviderType {
+  TMDB = 'tmdb',
+  TVDB = 'tvdb',
+}
+
+export interface MetadataSettings {
+  tv: MetadataProviderType;
+  anime: MetadataProviderType;
 }
 
 export interface ProxySettings {
@@ -122,20 +140,41 @@ export interface MainSettings {
     tv: Quota;
   };
   hideAvailable: boolean;
-  hideBlacklisted: boolean;
+  hideBlocklisted: boolean;
+  hideRequested: boolean;
   localLogin: boolean;
   mediaServerLogin: boolean;
   newPlexLogin: boolean;
   discoverRegion: string;
   streamingRegion: string;
   originalLanguage: string;
-  blacklistedTags: string;
-  blacklistedTagsLimit: number;
+  blocklistRegion: string;
+  blocklistLanguage: string;
+  blocklistedTags: string;
+  blocklistedTagsLimit: number;
   mediaServerType: number;
   partialRequestsEnabled: boolean;
   enableSpecialEpisodes: boolean;
   locale: string;
   youtubeUrl: string;
+  versionCheck: boolean;
+}
+
+export interface ProxySettings {
+  enabled: boolean;
+  hostname: string;
+  port: number;
+  useSsl: boolean;
+  user: string;
+  password: string;
+  bypassFilter: string;
+  bypassLocalAddresses: boolean;
+}
+
+export interface DnsCacheSettings {
+  enabled: boolean;
+  forceMinTtl?: number;
+  forceMaxTtl?: number;
 }
 
 export interface NetworkSettings {
@@ -143,6 +182,8 @@ export interface NetworkSettings {
   forceIpv4First: boolean;
   trustProxy: boolean;
   proxy: ProxySettings;
+  dnsCache: DnsCacheSettings;
+  apiRequestTimeout: number;
 }
 
 interface PublicSettings {
@@ -153,7 +194,8 @@ interface FullPublicSettings extends PublicSettings {
   applicationTitle: string;
   applicationUrl: string;
   hideAvailable: boolean;
-  hideBlacklisted: boolean;
+  hideBlocklisted: boolean;
+  hideRequested: boolean;
   localLogin: boolean;
   mediaServerLogin: boolean;
   movie4kEnabled: boolean;
@@ -175,10 +217,13 @@ interface FullPublicSettings extends PublicSettings {
   userEmailRequired: boolean;
   newPlexLogin: boolean;
   youtubeUrl: string;
+  versionCheck: boolean;
+  plexClientIdentifier: string;
 }
 
 export interface NotificationAgentConfig {
   enabled: boolean;
+  embedPoster: boolean;
   types?: number;
   options: Record<string, unknown>;
 }
@@ -188,13 +233,17 @@ export interface NotificationAgentDiscord extends NotificationAgentConfig {
     botAvatarUrl?: string;
     webhookUrl: string;
     webhookRoleId?: string;
+    webhookThreadId?: string;
     enableMentions: boolean;
+    locale: AvailableLocale;
+    useUserLocale: boolean;
   };
 }
 
 export interface NotificationAgentSlack extends NotificationAgentConfig {
   options: {
     webhookUrl: string;
+    locale: AvailableLocale;
   };
 }
 
@@ -211,6 +260,7 @@ export interface NotificationAgentEmail extends NotificationAgentConfig {
     authPass?: string;
     allowSelfSigned: boolean;
     senderName: string;
+    usePublicLogo: boolean;
     pgpPrivateKey?: string;
     pgpPassword?: string;
   };
@@ -246,6 +296,8 @@ export interface NotificationAgentWebhook extends NotificationAgentConfig {
     webhookUrl: string;
     jsonPayload: string;
     authHeader?: string;
+    customHeaders?: { key: string; value: string }[];
+    supportVariables?: boolean;
   };
 }
 
@@ -254,6 +306,7 @@ export interface NotificationAgentGotify extends NotificationAgentConfig {
     url: string;
     token: string;
     priority: number;
+    locale: AvailableLocale;
   };
 }
 
@@ -261,11 +314,14 @@ export interface NotificationAgentNtfy extends NotificationAgentConfig {
   options: {
     url: string;
     topic: string;
+    tags?: string;
     authMethodUsernamePassword?: boolean;
     username?: string;
     password?: string;
     authMethodToken?: boolean;
     token?: string;
+    priority?: number;
+    locale: AvailableLocale;
   };
 }
 
@@ -316,10 +372,11 @@ export type JobId =
   | 'jellyfin-full-scan'
   | 'image-cache-cleanup'
   | 'availability-sync'
-  | 'process-blacklisted-tags';
+  | 'process-blocklisted-tags';
 
 export interface AllSettings {
   clientId: string;
+  sessionSecret?: string;
   vapidPublic: string;
   vapidPrivate: string;
   main: MainSettings;
@@ -332,6 +389,8 @@ export interface AllSettings {
   notifications: NotificationSettings;
   jobs: Record<JobId, JobSettings>;
   network: NetworkSettings;
+  metadataSettings: MetadataSettings;
+  migrations: string[];
 }
 
 const SETTINGS_PATH = process.env.CONFIG_DIRECTORY
@@ -340,15 +399,17 @@ const SETTINGS_PATH = process.env.CONFIG_DIRECTORY
 
 class Settings {
   private data: AllSettings;
+  private saveLock: Promise<void> = Promise.resolve();
 
   constructor(initialSettings?: AllSettings) {
     this.data = {
       clientId: randomUUID(),
+      sessionSecret: '',
       vapidPrivate: '',
       vapidPublic: '',
       main: {
         apiKey: '',
-        applicationTitle: 'Jellyseerr',
+        applicationTitle: 'Seerr',
         applicationUrl: '',
         cacheImages: false,
         defaultPermissions: Permission.REQUEST,
@@ -357,20 +418,24 @@ class Settings {
           tv: {},
         },
         hideAvailable: false,
-        hideBlacklisted: false,
+        hideBlocklisted: false,
+        hideRequested: false,
         localLogin: true,
         mediaServerLogin: true,
         newPlexLogin: true,
         discoverRegion: '',
         streamingRegion: '',
         originalLanguage: '',
-        blacklistedTags: '',
-        blacklistedTagsLimit: 50,
+        blocklistRegion: '',
+        blocklistLanguage: '',
+        blocklistedTags: '',
+        blocklistedTagsLimit: 50,
         mediaServerType: MediaServerType.NOT_CONFIGURED,
         partialRequestsEnabled: true,
         enableSpecialEpisodes: false,
         locale: 'en',
         youtubeUrl: '',
+        versionCheck: true,
       },
       plex: {
         name: '',
@@ -392,6 +457,10 @@ class Settings {
         apiKey: '',
       },
       tautulli: {},
+      metadataSettings: {
+        tv: MetadataProviderType.TMDB,
+        anime: MetadataProviderType.TMDB,
+      },
       radarr: [],
       sonarr: [],
       public: {
@@ -401,6 +470,7 @@ class Settings {
         agents: {
           email: {
             enabled: false,
+            embedPoster: true,
             options: {
               userEmailRequired: false,
               emailFrom: '',
@@ -410,27 +480,34 @@ class Settings {
               ignoreTls: false,
               requireTls: false,
               allowSelfSigned: false,
-              senderName: 'Jellyseerr',
+              senderName: 'Seerr',
+              usePublicLogo: false,
             },
           },
           discord: {
             enabled: false,
+            embedPoster: true,
             types: 0,
             options: {
               webhookUrl: '',
               webhookRoleId: '',
               enableMentions: true,
+              locale: 'en',
+              useUserLocale: true,
             },
           },
           slack: {
             enabled: false,
+            embedPoster: true,
             types: 0,
             options: {
               webhookUrl: '',
+              locale: 'en',
             },
           },
           telegram: {
             enabled: false,
+            embedPoster: true,
             types: 0,
             options: {
               botAPI: '',
@@ -441,6 +518,7 @@ class Settings {
           },
           pushbullet: {
             enabled: false,
+            embedPoster: false,
             types: 0,
             options: {
               accessToken: '',
@@ -448,6 +526,7 @@ class Settings {
           },
           pushover: {
             enabled: false,
+            embedPoster: true,
             types: 0,
             options: {
               accessToken: '',
@@ -457,6 +536,7 @@ class Settings {
           },
           webhook: {
             enabled: false,
+            embedPoster: true,
             types: 0,
             options: {
               webhookUrl: '',
@@ -466,23 +546,30 @@ class Settings {
           },
           webpush: {
             enabled: false,
+            embedPoster: true,
             options: {},
           },
           gotify: {
             enabled: false,
+            embedPoster: false,
             types: 0,
             options: {
               url: '',
               token: '',
               priority: 0,
+              locale: 'en',
             },
           },
           ntfy: {
             enabled: false,
+            embedPoster: true,
             types: 0,
             options: {
               url: '',
               topic: '',
+              tags: '',
+              priority: 3,
+              locale: 'en',
             },
           },
         },
@@ -524,7 +611,7 @@ class Settings {
         'image-cache-cleanup': {
           schedule: '0 0 5 * * *',
         },
-        'process-blacklisted-tags': {
+        'process-blocklisted-tags': {
           schedule: '0 30 1 */7 * *',
         },
       },
@@ -542,10 +629,17 @@ class Settings {
           bypassFilter: '',
           bypassLocalAddresses: true,
         },
+        dnsCache: {
+          enabled: false,
+          forceMinTtl: 0,
+          forceMaxTtl: -1,
+        },
+        apiRequestTimeout: 10000,
       },
+      migrations: [],
     };
     if (initialSettings) {
-      this.data = merge(this.data, initialSettings);
+      this.data = mergeSettings(this.data, initialSettings);
     }
   }
 
@@ -554,7 +648,7 @@ class Settings {
   }
 
   set main(data: MainSettings) {
-    this.data.main = data;
+    this.data.main = mergeSettings(this.data.main, data);
   }
 
   get plex(): PlexSettings {
@@ -562,7 +656,7 @@ class Settings {
   }
 
   set plex(data: PlexSettings) {
-    this.data.plex = data;
+    this.data.plex = mergeSettings(this.data.plex, data);
   }
 
   get jellyfin(): JellyfinSettings {
@@ -570,7 +664,7 @@ class Settings {
   }
 
   set jellyfin(data: JellyfinSettings) {
-    this.data.jellyfin = data;
+    this.data.jellyfin = mergeSettings(this.data.jellyfin, data);
   }
 
   get tautulli(): TautulliSettings {
@@ -578,7 +672,18 @@ class Settings {
   }
 
   set tautulli(data: TautulliSettings) {
-    this.data.tautulli = data;
+    this.data.tautulli = mergeSettings(this.data.tautulli, data);
+  }
+
+  get metadataSettings(): MetadataSettings {
+    return this.data.metadataSettings;
+  }
+
+  set metadataSettings(data: MetadataSettings) {
+    this.data.metadataSettings = mergeSettings(
+      this.data.metadataSettings,
+      data
+    );
   }
 
   get radarr(): RadarrSettings[] {
@@ -602,7 +707,7 @@ class Settings {
   }
 
   set public(data: PublicSettings) {
-    this.data.public = data;
+    this.data.public = mergeSettings(this.data.public, data);
   }
 
   get fullPublicSettings(): FullPublicSettings {
@@ -611,7 +716,8 @@ class Settings {
       applicationTitle: this.data.main.applicationTitle,
       applicationUrl: this.data.main.applicationUrl,
       hideAvailable: this.data.main.hideAvailable,
-      hideBlacklisted: this.data.main.hideBlacklisted,
+      hideBlocklisted: this.data.main.hideBlocklisted,
+      hideRequested: this.data.main.hideRequested,
       localLogin: this.data.main.localLogin,
       mediaServerLogin: this.data.main.mediaServerLogin,
       jellyfinExternalHost: this.data.jellyfin.externalHostname,
@@ -637,6 +743,8 @@ class Settings {
         this.data.notifications.agents.email.options.userEmailRequired,
       newPlexLogin: this.data.main.newPlexLogin,
       youtubeUrl: this.data.main.youtubeUrl,
+      versionCheck: this.data.main.versionCheck,
+      plexClientIdentifier: this.data.clientId,
     };
   }
 
@@ -645,7 +753,7 @@ class Settings {
   }
 
   set notifications(data: NotificationSettings) {
-    this.data.notifications = data;
+    this.data.notifications = mergeSettings(this.data.notifications, data);
   }
 
   get jobs(): Record<JobId, JobSettings> {
@@ -653,7 +761,7 @@ class Settings {
   }
 
   set jobs(data: Record<JobId, JobSettings>) {
-    this.data.jobs = data;
+    this.data.jobs = mergeSettings(this.data.jobs, data);
   }
 
   get network(): NetworkSettings {
@@ -661,11 +769,23 @@ class Settings {
   }
 
   set network(data: NetworkSettings) {
-    this.data.network = data;
+    this.data.network = mergeSettings(this.data.network, data);
+  }
+
+  get migrations(): string[] {
+    return this.data.migrations;
+  }
+
+  set migrations(data: string[]) {
+    this.data.migrations = data;
   }
 
   get clientId(): string {
     return this.data.clientId;
+  }
+
+  get sessionSecret(): string {
+    return this.data.sessionSecret!;
   }
 
   get vapidPublic(): string {
@@ -696,9 +816,13 @@ class Settings {
    * This will load settings from file unless an optional argument of the object structure
    * is passed in.
    * @param overrideSettings If passed in, will override all existing settings with these
+   * @param raw If true, will load the settings without running migrations or generating missing
    * values
    */
-  public async load(overrideSettings?: AllSettings): Promise<Settings> {
+  public async load(
+    overrideSettings?: AllSettings,
+    raw = false
+  ): Promise<Settings> {
     if (overrideSettings) {
       this.data = overrideSettings;
       return this;
@@ -711,14 +835,22 @@ class Settings {
       await this.save();
     }
 
-    if (data) {
+    let change = false;
+    if (data && !raw) {
       const parsedJson = JSON.parse(data);
       const migratedData = await runMigrations(parsedJson, SETTINGS_PATH);
-      this.data = merge(this.data, migratedData);
+      const merged = mergeSettings(this.data, migratedData);
+
+      if (JSON.stringify(merged) !== JSON.stringify(migratedData)) {
+        change = true;
+      }
+
+      this.data = merged;
+    } else if (data) {
+      this.data = JSON.parse(data);
     }
 
     // generate keys and ids if it's missing
-    let change = false;
     if (!this.data.main.apiKey) {
       this.data.main.apiKey = this.generateApiKey();
       change = true;
@@ -729,6 +861,10 @@ class Settings {
     }
     if (!this.data.clientId) {
       this.data.clientId = randomUUID();
+      change = true;
+    }
+    if (!this.data.sessionSecret) {
+      this.data.sessionSecret = randomBytes(32).toString('hex');
       change = true;
     }
     if (!this.data.vapidPublic || !this.data.vapidPrivate) {
@@ -745,9 +881,17 @@ class Settings {
   }
 
   public async save(): Promise<void> {
-    const tmp = SETTINGS_PATH + '.tmp';
-    await fs.writeFile(tmp, JSON.stringify(this.data, undefined, ' '));
-    await fs.rename(tmp, SETTINGS_PATH);
+    const savePromise = this.saveLock.then(async () => {
+      const tmp = SETTINGS_PATH + '.tmp';
+      await fs.writeFile(tmp, JSON.stringify(this.data, undefined, ' '));
+      await fs.rename(tmp, SETTINGS_PATH);
+    });
+
+    this.saveLock = savePromise.catch(() => {
+      // Keep the chain alive so future saves aren't blocked by past failures
+    });
+
+    return savePromise;
   }
 }
 

@@ -6,6 +6,7 @@ import AdvancedRequester from '@app/components/RequestModal/AdvancedRequester';
 import QuotaDisplay from '@app/components/RequestModal/QuotaDisplay';
 import SearchByNameModal from '@app/components/RequestModal/SearchByNameModal';
 import useSettings from '@app/hooks/useSettings';
+import useToasts from '@app/hooks/useToasts';
 import { useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
@@ -20,7 +21,6 @@ import type { TvDetails } from '@server/models/Tv';
 import axios from 'axios';
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages('components.RequestModal', {
@@ -157,7 +157,7 @@ const TvRequestModal = ({
       if (onComplete) {
         onComplete(MediaStatus.PENDING);
       }
-    } catch (e) {
+    } catch {
       addToast(<span>{intl.formatMessage(messages.errorediting)}</span>, {
         appearance: 'error',
         autoDismiss: true,
@@ -199,11 +199,11 @@ const TvRequestModal = ({
         tvdbId: tvdbId ?? data?.externalIds.tvdbId,
         mediaType: 'tv',
         is4k,
+        ignoreQuota: requestOverrides?.ignoreQuota,
         seasons: settings.currentSettings.partialRequestsEnabled
           ? selectedSeasons.sort((a, b) => a - b)
           : getAllSeasons().filter(
-              (season) =>
-                !getAllRequestedSeasons().includes(season) && season !== 0
+              (season) => !getAllRequestedSeasons().includes(season)
             ),
         ...overrideParams,
       });
@@ -223,7 +223,7 @@ const TvRequestModal = ({
           { appearance: 'success', autoDismiss: true }
         );
       }
-    } catch (e) {
+    } catch {
       addToast(intl.formatMessage(messages.requesterror), {
         appearance: 'error',
         autoDismiss: true,
@@ -303,10 +303,8 @@ const TvRequestModal = ({
     }
   };
 
-  const unrequestedSeasons = getAllSeasons().filter((season) =>
-    !settings.currentSettings.partialRequestsEnabled
-      ? !getAllRequestedSeasons().includes(season) && season !== 0
-      : !getAllRequestedSeasons().includes(season)
+  const unrequestedSeasons = getAllSeasons().filter(
+    (season) => !getAllRequestedSeasons().includes(season)
   );
 
   const toggleAllSeasons = (): void => {
@@ -318,16 +316,12 @@ const TvRequestModal = ({
       return;
     }
 
-    const standardUnrequestedSeasons = unrequestedSeasons.filter(
-      (seasonNumber) => seasonNumber !== 0
-    );
-
     if (
       data &&
       selectedSeasons.length >= 0 &&
-      selectedSeasons.length < standardUnrequestedSeasons.length
+      selectedSeasons.length < unrequestedSeasons.length
     ) {
-      setSelectedSeasons(standardUnrequestedSeasons);
+      setSelectedSeasons(unrequestedSeasons);
     } else {
       setSelectedSeasons([]);
     }
@@ -360,7 +354,12 @@ const TvRequestModal = ({
       ).length > 0
     ) {
       data.mediaInfo.requests
-        .filter((request) => request.is4k === is4k)
+        .filter(
+          (request) =>
+            request.is4k === is4k &&
+            request.status !== MediaRequestStatus.DECLINED &&
+            request.status !== MediaRequestStatus.COMPLETED
+        )
         .forEach((request) => {
           if (!seasonRequest) {
             seasonRequest = request.seasons.find(
@@ -408,8 +407,8 @@ const TvRequestModal = ({
             ? messages.pending4krequest
             : messages.pendingrequest
           : is4k
-          ? messages.requestseries4ktitle
-          : messages.requestseriestitle
+            ? messages.requestseries4ktitle
+            : messages.requestseriestitle
       )}
       subTitle={data?.name}
       okText={
@@ -417,33 +416,34 @@ const TvRequestModal = ({
           ? selectedSeasons.length === 0
             ? intl.formatMessage(messages.cancel)
             : hasPermission(Permission.MANAGE_REQUESTS)
-            ? intl.formatMessage(messages.approve)
-            : intl.formatMessage(messages.edit)
-          : getAllRequestedSeasons().length >= getAllSeasons().length
-          ? intl.formatMessage(messages.alreadyrequested)
-          : !settings.currentSettings.partialRequestsEnabled
-          ? intl.formatMessage(
-              is4k ? globalMessages.request4k : globalMessages.request
-            )
-          : selectedSeasons.length === 0
-          ? intl.formatMessage(messages.selectseason)
-          : intl.formatMessage(
-              is4k ? messages.requestseasons4k : messages.requestseasons,
-              {
-                seasonCount: selectedSeasons.length,
-              }
-            )
+              ? intl.formatMessage(messages.approve)
+              : intl.formatMessage(messages.edit)
+          : unrequestedSeasons.length === 0
+            ? intl.formatMessage(messages.alreadyrequested)
+            : !settings.currentSettings.partialRequestsEnabled
+              ? intl.formatMessage(
+                  is4k ? globalMessages.request4k : globalMessages.request
+                )
+              : selectedSeasons.length === 0
+                ? intl.formatMessage(messages.selectseason)
+                : intl.formatMessage(
+                    is4k ? messages.requestseasons4k : messages.requestseasons,
+                    {
+                      seasonCount: selectedSeasons.length,
+                    }
+                  )
       }
       okDisabled={
         editRequest
           ? false
           : !settings.currentSettings.partialRequestsEnabled &&
-            quota?.tv.limit &&
-            unrequestedSeasons.length > quota.tv.limit
-          ? true
-          : getAllRequestedSeasons().length >= getAllSeasons().length ||
-            (settings.currentSettings.partialRequestsEnabled &&
-              selectedSeasons.length === 0)
+              quota?.tv.limit &&
+              unrequestedSeasons.length > quota.tv.limit &&
+              !requestOverrides?.ignoreQuota
+            ? true
+            : unrequestedSeasons.length === 0 ||
+              (settings.currentSettings.partialRequestsEnabled &&
+                selectedSeasons.length === 0)
       }
       okButtonType={
         editRequest
@@ -451,16 +451,16 @@ const TvRequestModal = ({
             selectedSeasons.length === 0
             ? 'danger'
             : hasPermission(Permission.MANAGE_REQUESTS)
-            ? 'success'
-            : 'primary'
+              ? 'success'
+              : 'primary'
           : 'primary'
       }
       cancelText={
         editRequest
           ? intl.formatMessage(globalMessages.close)
           : tvdbId
-          ? intl.formatMessage(globalMessages.back)
-          : intl.formatMessage(globalMessages.cancel)
+            ? intl.formatMessage(globalMessages.back)
+            : intl.formatMessage(globalMessages.cancel)
       }
       backdrop={`https://image.tmdb.org/t/p/w1920_and_h800_multi_faces/${data?.backdropPath}`}
     >
@@ -486,12 +486,12 @@ const TvRequestModal = ({
         ) &&
         getAllRequestedSeasons().length < getAllSeasons().length &&
         !editRequest && (
-          <p className="mt-6">
+          <div className="mt-6">
             <Alert
               title={intl.formatMessage(messages.requestadmin)}
               type="info"
             />
-          </p>
+          </div>
         )}
       {(quota?.tv.limit ?? 0) > 0 && (
         <QuotaDisplay
@@ -524,7 +524,7 @@ const TvRequestModal = ({
                 <thead>
                   <tr>
                     <th
-                      className={`w-16 bg-gray-700 bg-opacity-80 px-4 py-3 ${
+                      className={`w-16 bg-gray-700/80 px-4 py-3 ${
                         !settings.currentSettings.partialRequestsEnabled &&
                         'hidden'
                       }`}
@@ -552,22 +552,22 @@ const TvRequestModal = ({
                           className={`${
                             isAllSeasons() ? 'bg-indigo-500' : 'bg-gray-800'
                           } absolute mx-auto h-4 w-9 rounded-full transition-colors duration-200 ease-in-out`}
-                        ></span>
+                        />
                         <span
                           aria-hidden="true"
                           className={`${
                             isAllSeasons() ? 'translate-x-5' : 'translate-x-0'
                           } absolute left-0 inline-block h-5 w-5 rounded-full border border-gray-200 bg-white shadow transition-transform duration-200 ease-in-out group-focus:border-blue-300 group-focus:ring`}
-                        ></span>
+                        />
                       </span>
                     </th>
-                    <th className="bg-gray-700 bg-opacity-80 px-1 py-3 text-left text-xs font-medium uppercase leading-4 tracking-wider text-gray-200 md:px-6">
+                    <th className="bg-gray-700/80 px-1 py-3 text-left text-xs font-medium uppercase leading-4 tracking-wider text-gray-200 md:px-6">
                       {intl.formatMessage(messages.season)}
                     </th>
-                    <th className="bg-gray-700 bg-opacity-80 px-5 py-3 text-left text-xs font-medium uppercase leading-4 tracking-wider text-gray-200 md:px-6">
+                    <th className="bg-gray-700/80 px-5 py-3 text-left text-xs font-medium uppercase leading-4 tracking-wider text-gray-200 md:px-6">
                       {intl.formatMessage(messages.numberofepisodes)}
                     </th>
-                    <th className="bg-gray-700 bg-opacity-80 px-2 py-3 text-left text-xs font-medium uppercase leading-4 tracking-wider text-gray-200 md:px-6">
+                    <th className="bg-gray-700/80 px-2 py-3 text-left text-xs font-medium uppercase leading-4 tracking-wider text-gray-200 md:px-6">
                       {intl.formatMessage(globalMessages.status)}
                     </th>
                   </tr>
@@ -576,13 +576,9 @@ const TvRequestModal = ({
                   {data?.seasons
                     .filter(
                       (season) =>
-                        (!settings.currentSettings.enableSpecialEpisodes
-                          ? season.seasonNumber !== 0
-                          : true) &&
-                        (!settings.currentSettings.partialRequestsEnabled
-                          ? season.episodeCount !== 0 &&
-                            season.seasonNumber !== 0
-                          : season.episodeCount !== 0)
+                        season.episodeCount !== 0 &&
+                        (settings.currentSettings.enableSpecialEpisodes ||
+                          season.seasonNumber !== 0)
                     )
                     .map((season) => {
                       const seasonRequest = getSeasonRequest(
@@ -644,7 +640,7 @@ const TvRequestModal = ({
                                     ? 'bg-indigo-500'
                                     : 'bg-gray-700'
                                 } absolute mx-auto h-4 w-9 rounded-full transition-colors duration-200 ease-in-out`}
-                              ></span>
+                              />
                               <span
                                 aria-hidden="true"
                                 className={`${
@@ -657,7 +653,7 @@ const TvRequestModal = ({
                                     ? 'translate-x-5'
                                     : 'translate-x-0'
                                 } absolute left-0 inline-block h-5 w-5 rounded-full border border-gray-200 bg-white shadow transition-transform duration-200 ease-in-out group-focus:border-blue-300 group-focus:ring`}
-                              ></span>
+                              />
                             </span>
                           </td>
                           <td className="whitespace-nowrap px-1 py-4 text-sm font-medium leading-5 text-gray-100 md:px-6">
@@ -718,16 +714,21 @@ const TvRequestModal = ({
           </div>
         </div>
       </div>
-      {(hasPermission(Permission.REQUEST_ADVANCED) ||
-        hasPermission(Permission.MANAGE_REQUESTS)) && (
+      {hasPermission(
+        [Permission.REQUEST_ADVANCED, Permission.MANAGE_REQUESTS],
+        { type: 'or' }
+      ) && (
         <AdvancedRequester
           type="tv"
+          tmdbId={tmdbId}
           is4k={is4k}
           isAnime={data?.keywords.some(
             (keyword) => keyword.id === ANIME_KEYWORD_ID
           )}
+          quota={quota}
           onChange={(overrides) => setRequestOverrides(overrides)}
           requestUser={editRequest?.requestedBy}
+          requestId={editRequest?.id}
           defaultOverrides={
             editRequest
               ? {

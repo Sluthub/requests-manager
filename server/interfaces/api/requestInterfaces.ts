@@ -7,6 +7,10 @@ export interface RequestResultsResponse extends PaginatedResponse {
     profileName?: string;
     canRemove?: boolean;
   })[];
+  serviceErrors: {
+    radarr: { id: number; name: string }[];
+    sonarr: { id: number; name: string }[];
+  };
 }
 
 export type MediaRequestBody = {
@@ -22,4 +26,5 @@ export type MediaRequestBody = {
   languageProfileId?: number;
   userId?: number;
   tags?: number[];
+  ignoreQuota?: boolean;
 };

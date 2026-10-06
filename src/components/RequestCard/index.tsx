@@ -1,3 +1,4 @@
+import Spinner from '@app/assets/spinner.svg';
 import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
@@ -5,11 +6,14 @@ import Tooltip from '@app/components/Common/Tooltip';
 import RequestModal from '@app/components/RequestModal';
 import StatusBadge from '@app/components/StatusBadge';
 import useDeepLinks from '@app/hooks/useDeepLinks';
-import useSettings from '@app/hooks/useSettings';
+import useToasts from '@app/hooks/useToasts';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
-import { refreshIntervalHelper } from '@app/utils/refreshIntervalHelper';
+import {
+  getRequestDownloadStatus,
+  refreshIntervalHelper,
+} from '@app/utils/refreshIntervalHelper';
 import { withProperties } from '@app/utils/typeHelpers';
 import {
   ArrowPathIcon,
@@ -28,12 +32,12 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useInView } from 'react-intersection-observer';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages('components.RequestCard', {
   seasons: '{seasonCount, plural, one {Season} other {Seasons}}',
   failedretry: 'Something went wrong while retrying the request.',
+  failedmodify: 'Something went wrong while modifying the request.',
   mediaerror: '{mediaType} Not Found',
   tmdbid: 'TMDB ID',
   tvdbid: 'TheTVDB ID',
@@ -73,6 +77,15 @@ const RequestCardError = ({ requestData }: RequestCardErrorProps) => {
     iOSPlexUrl: requestData?.media?.iOSPlexUrl,
     iOSPlexUrl4k: requestData?.media?.iOSPlexUrl4k,
   });
+
+  const requestDownloadStatus = getRequestDownloadStatus(
+    requestData?.media?.[
+      requestData?.is4k ? 'downloadStatus4k' : 'downloadStatus'
+    ],
+    requestData?.type === 'tv'
+      ? (requestData?.seasons ?? []).map((season) => season.seasonNumber)
+      : []
+  );
 
   const deleteRequest = async () => {
     await axios.delete(`/api/v1/media/${requestData?.media.id}`);
@@ -148,23 +161,9 @@ const RequestCardError = ({ requestData }: RequestCardErrorProps) => {
                           requestData.is4k ? 'status4k' : 'status'
                         ]
                       }
-                      downloadItem={
-                        requestData.media[
-                          requestData.is4k
-                            ? 'downloadStatus4k'
-                            : 'downloadStatus'
-                        ]
-                      }
+                      downloadItem={requestDownloadStatus}
                       title={intl.formatMessage(messages.unknowntitle)}
-                      inProgress={
-                        (
-                          requestData.media[
-                            requestData.is4k
-                              ? 'downloadStatus4k'
-                              : 'downloadStatus'
-                          ] ?? []
-                        ).length > 0
-                      }
+                      inProgress={requestDownloadStatus.length > 0}
                       is4k={requestData.is4k}
                       mediaType={requestData.type}
                       plexUrl={requestData.is4k ? plexUrl4k : plexUrl}
@@ -219,7 +218,6 @@ interface RequestCardProps {
 }
 
 const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
-  const settings = useSettings();
   const { ref, inView } = useInView({
     triggerOnce: true,
   });
@@ -227,6 +225,9 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
   const { user, hasPermission } = useUser();
   const { addToast } = useToasts();
   const [isRetrying, setRetrying] = useState(false);
+  const [updatingType, setUpdatingType] = useState<
+    'approve' | 'decline' | null
+  >(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const url =
     request.type === 'movie'
@@ -262,11 +263,18 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
   });
 
   const modifyRequest = async (type: 'approve' | 'decline') => {
-    const response = await axios.post(`/api/v1/request/${request.id}/${type}`);
-
-    if (response) {
+    setUpdatingType(type);
+    try {
+      await axios.post(`/api/v1/request/${request.id}/${type}`);
       revalidate();
       mutate('/api/v1/request/count');
+    } catch {
+      addToast(intl.formatMessage(messages.failedmodify), {
+        autoDismiss: true,
+        appearance: 'error',
+      });
+    } finally {
+      setUpdatingType(null);
     }
   };
 
@@ -285,7 +293,7 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
       if (response) {
         revalidate();
       }
-    } catch (e) {
+    } catch {
       addToast(intl.formatMessage(messages.failedretry), {
         autoDismiss: true,
         appearance: 'error',
@@ -316,6 +324,13 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
   if (!title || !requestData) {
     return <RequestCardError requestData={requestData} />;
   }
+
+  const requestDownloadStatus = getRequestDownloadStatus(
+    requestData.media[requestData.is4k ? 'downloadStatus4k' : 'downloadStatus'],
+    requestData.type === 'tv'
+      ? requestData.seasons.map((season) => season.seasonNumber)
+      : []
+  );
 
   return (
     <>
@@ -400,16 +415,9 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
           )}
           {!isMovie(title) && request.seasons.length > 0 && (
             <div className="my-0.5 hidden items-center text-sm sm:my-1 sm:flex">
-              <span className="mr-2 font-bold ">
+              <span className="mr-2 font-bold">
                 {intl.formatMessage(messages.seasons, {
-                  seasonCount:
-                    (settings.currentSettings.enableSpecialEpisodes
-                      ? title.seasons.length
-                      : title.seasons.filter(
-                          (season) => season.seasonNumber !== 0
-                        ).length) === request.seasons.length
-                      ? 0
-                      : request.seasons.length,
+                  seasonCount: request.seasons.length,
                 })}
               </span>
               <div className="hide-scrollbar overflow-x-scroll">
@@ -454,19 +462,9 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
                 status={
                   requestData.media[requestData.is4k ? 'status4k' : 'status']
                 }
-                downloadItem={
-                  requestData.media[
-                    requestData.is4k ? 'downloadStatus4k' : 'downloadStatus'
-                  ]
-                }
+                downloadItem={requestDownloadStatus}
                 title={isMovie(title) ? title.title : title.name}
-                inProgress={
-                  (
-                    requestData.media[
-                      requestData.is4k ? 'downloadStatus4k' : 'downloadStatus'
-                    ] ?? []
-                  ).length > 0
-                }
+                inProgress={requestDownloadStatus.length > 0}
                 is4k={requestData.is4k}
                 tmdbId={requestData.media.tmdbId}
                 mediaType={requestData.type}
@@ -506,8 +504,9 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
                       buttonSize="sm"
                       className="hidden sm:block"
                       onClick={() => modifyRequest('approve')}
+                      disabled={updatingType !== null}
                     >
-                      <CheckIcon />
+                      {updatingType === 'approve' ? <Spinner /> : <CheckIcon />}
                       <span>{intl.formatMessage(globalMessages.approve)}</span>
                     </Button>
                     <Tooltip
@@ -518,8 +517,13 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
                         buttonSize="sm"
                         className="sm:hidden"
                         onClick={() => modifyRequest('approve')}
+                        disabled={updatingType !== null}
                       >
-                        <CheckIcon />
+                        {updatingType === 'approve' ? (
+                          <Spinner />
+                        ) : (
+                          <CheckIcon />
+                        )}
                       </Button>
                     </Tooltip>
                   </div>
@@ -529,8 +533,9 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
                       buttonSize="sm"
                       className="hidden sm:block"
                       onClick={() => modifyRequest('decline')}
+                      disabled={updatingType !== null}
                     >
-                      <XMarkIcon />
+                      {updatingType === 'decline' ? <Spinner /> : <XMarkIcon />}
                       <span>{intl.formatMessage(globalMessages.decline)}</span>
                     </Button>
                     <Tooltip
@@ -541,8 +546,13 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
                         buttonSize="sm"
                         className="sm:hidden"
                         onClick={() => modifyRequest('decline')}
+                        disabled={updatingType !== null}
                       >
-                        <XMarkIcon />
+                        {updatingType === 'decline' ? (
+                          <Spinner />
+                        ) : (
+                          <XMarkIcon />
+                        )}
                       </Button>
                     </Tooltip>
                   </div>
@@ -560,6 +570,7 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
                       buttonSize="sm"
                       className="hidden sm:block"
                       onClick={() => setShowEditModal(true)}
+                      disabled={updatingType !== null}
                     >
                       <PencilIcon />
                       <span>{intl.formatMessage(globalMessages.edit)}</span>
@@ -571,6 +582,7 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
                       buttonSize="sm"
                       className="sm:hidden"
                       onClick={() => setShowEditModal(true)}
+                      disabled={updatingType !== null}
                     >
                       <PencilIcon />
                     </Button>
@@ -617,7 +629,7 @@ const RequestCard = ({ request, onTitleData }: RequestCardProps) => {
             src={
               title.posterPath
                 ? `https://image.tmdb.org/t/p/w600_and_h900_bestv2${title.posterPath}`
-                : '/images/jellyseerr_poster_not_found.png'
+                : '/images/seerr_poster_not_found.png'
             }
             alt=""
             sizes="100vw"

@@ -1,6 +1,12 @@
 import useSettings from '@app/hooks/useSettings';
 import defineMessages from '@app/utils/defineMessages';
-import { Listbox, Transition } from '@headlessui/react';
+import {
+  Listbox,
+  ListboxButton,
+  ListboxOption,
+  ListboxOptions,
+  Transition,
+} from '@headlessui/react';
 import { CheckIcon, ChevronDownIcon } from '@heroicons/react/24/solid';
 import type { Region } from '@server/lib/settings';
 import { countries } from 'country-flag-icons';
@@ -83,23 +89,18 @@ const RegionSelector = ({
     }
   }, [value, regions, allRegion]);
 
-  useEffect(() => {
-    if (onChange && regions) {
-      if (selectedRegion) {
-        onChange(name, selectedRegion.iso_3166_1);
-      } else {
-        onChange(name, '');
-      }
-    }
-  }, [onChange, selectedRegion, name, regions]);
+  const handleRegionSelect = (region: Region | null) => {
+    setSelectedRegion(region);
+    onChange?.(name, region?.iso_3166_1 ?? '');
+  };
 
   return (
-    <div className="z-40 w-full">
-      <Listbox as="div" value={selectedRegion} onChange={setSelectedRegion}>
+    <div className="w-full">
+      <Listbox as="div" value={selectedRegion} onChange={handleRegionSelect}>
         {({ open }) => (
           <div className="relative">
             <span className="inline-block w-full rounded-md shadow-sm">
-              <Listbox.Button className="focus:shadow-outline-blue relative flex w-full cursor-default items-center rounded-md border border-gray-500 bg-gray-700 py-2 pl-3 pr-10 text-left text-white transition duration-150 ease-in-out focus:border-blue-300 focus:outline-none sm:text-sm sm:leading-5">
+              <ListboxButton className="focus:shadow-outline-blue relative flex w-full cursor-default items-center rounded-md border border-gray-500 bg-gray-700 py-2 pl-3 pr-10 text-left text-white transition duration-150 ease-in-out focus:border-blue-300 focus:outline-none sm:text-sm sm:leading-5">
                 {((selectedRegion &&
                   countries.includes(selectedRegion?.iso_3166_1)) ||
                   (isUserSetting &&
@@ -118,32 +119,33 @@ const RegionSelector = ({
                   {selectedRegion && selectedRegion.iso_3166_1 !== 'all'
                     ? regionName(selectedRegion.iso_3166_1)
                     : isUserSetting && selectedRegion?.iso_3166_1 !== 'all'
-                    ? intl.formatMessage(messages.regionServerDefault, {
-                        region: regionValue
-                          ? regionName(regionValue)
-                          : intl.formatMessage(messages.regionDefault),
-                      })
-                    : intl.formatMessage(messages.regionDefault)}
+                      ? intl.formatMessage(messages.regionServerDefault, {
+                          region: regionValue
+                            ? regionName(regionValue)
+                            : intl.formatMessage(messages.regionDefault),
+                        })
+                      : intl.formatMessage(messages.regionDefault)}
                 </span>
                 <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2 text-gray-500">
                   <ChevronDownIcon className="h-5 w-5" />
                 </span>
-              </Listbox.Button>
+              </ListboxButton>
             </span>
 
             <Transition
+              as="div"
               show={open}
               leave="transition-opacity ease-in duration-100"
               leaveFrom="opacity-100"
               leaveTo="opacity-0"
-              className="absolute mt-1 w-full rounded-md bg-gray-800 shadow-lg"
+              className="absolute z-50 mt-1 w-full rounded-md bg-gray-800 shadow-lg"
             >
-              <Listbox.Options
+              <ListboxOptions
                 static
                 className="shadow-xs max-h-60 overflow-auto rounded-md py-1 text-base leading-6 focus:outline-none sm:text-sm sm:leading-5"
               >
                 {isUserSetting && (
-                  <Listbox.Option value={null}>
+                  <ListboxOption value={null}>
                     {({ selected, active }) => (
                       <div
                         className={`${
@@ -181,10 +183,10 @@ const RegionSelector = ({
                         )}
                       </div>
                     )}
-                  </Listbox.Option>
+                  </ListboxOption>
                 )}
                 {!disableAll && (
-                  <Listbox.Option value={isUserSetting ? allRegion : null}>
+                  <ListboxOption value={isUserSetting ? allRegion : null}>
                     {({ selected, active }) => (
                       <div
                         className={`${
@@ -209,10 +211,10 @@ const RegionSelector = ({
                         )}
                       </div>
                     )}
-                  </Listbox.Option>
+                  </ListboxOption>
                 )}
                 {sortedRegions?.map((region) => (
-                  <Listbox.Option key={region.iso_3166_1} value={region}>
+                  <ListboxOption key={region.iso_3166_1} value={region}>
                     {({ selected, active }) => (
                       <div
                         className={`${
@@ -246,9 +248,9 @@ const RegionSelector = ({
                         )}
                       </div>
                     )}
-                  </Listbox.Option>
+                  </ListboxOption>
                 ))}
-              </Listbox.Options>
+              </ListboxOptions>
             </Transition>
           </div>
         )}

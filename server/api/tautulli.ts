@@ -1,6 +1,8 @@
 import type { User } from '@server/entity/User';
 import type { TautulliSettings } from '@server/lib/settings';
 import logger from '@server/logger';
+import { proxyRequestInterceptor } from '@server/utils/customProxyAgent';
+import { userAgentRequestInterceptor } from '@server/utils/userAgent';
 import type { AxiosInstance } from 'axios';
 import axios from 'axios';
 import { uniqWith } from 'lodash';
@@ -123,8 +125,8 @@ class TautulliAPI {
       }${settings.urlBase ?? ''}`,
       params: { apikey: settings.apiKey },
     });
-    this.axios.interceptors.request = axios.interceptors.request;
-    this.axios.interceptors.response = axios.interceptors.response;
+    this.axios.interceptors.request.use(proxyRequestInterceptor);
+    this.axios.interceptors.request.use(userAgentRequestInterceptor);
   }
 
   public async getInfo(): Promise<TautulliInfo> {
@@ -140,7 +142,8 @@ class TautulliAPI {
         errorMessage: e.message,
       });
       throw new Error(
-        `[Tautulli] Failed to fetch Tautulli server info: ${e.message}`
+        `[Tautulli] Failed to fetch Tautulli server info: ${e.message}`,
+        { cause: e }
       );
     }
   }
@@ -168,7 +171,8 @@ class TautulliAPI {
         }
       );
       throw new Error(
-        `[Tautulli] Failed to fetch media watch stats: ${e.message}`
+        `[Tautulli] Failed to fetch media watch stats: ${e.message}`,
+        { cause: e }
       );
     }
   }
@@ -196,7 +200,8 @@ class TautulliAPI {
         }
       );
       throw new Error(
-        `[Tautulli] Failed to fetch media watch users: ${e.message}`
+        `[Tautulli] Failed to fetch media watch users: ${e.message}`,
+        { cause: e }
       );
     }
   }
@@ -227,7 +232,8 @@ class TautulliAPI {
         }
       );
       throw new Error(
-        `[Tautulli] Failed to fetch user watch stats: ${e.message}`
+        `[Tautulli] Failed to fetch user watch stats: ${e.message}`,
+        { cause: e }
       );
     }
   }
@@ -269,8 +275,8 @@ class TautulliAPI {
           recordA.grandparent_rating_key && recordB.grandparent_rating_key
             ? recordA.grandparent_rating_key === recordB.grandparent_rating_key
             : recordA.parent_rating_key && recordB.parent_rating_key
-            ? recordA.parent_rating_key === recordB.parent_rating_key
-            : recordA.rating_key === recordB.rating_key
+              ? recordA.parent_rating_key === recordB.parent_rating_key
+              : recordA.rating_key === recordB.rating_key
         );
 
         start += take;
@@ -287,7 +293,8 @@ class TautulliAPI {
         }
       );
       throw new Error(
-        `[Tautulli] Failed to fetch user watch history: ${e.message}`
+        `[Tautulli] Failed to fetch user watch history: ${e.message}`,
+        { cause: e }
       );
     }
   }

@@ -2,6 +2,7 @@ import EmbyLogo from '@app/assets/services/emby.svg';
 import JellyfinLogo from '@app/assets/services/jellyfin.svg';
 import PlexLogo from '@app/assets/services/plex.svg';
 import AppDataWarning from '@app/components/AppDataWarning';
+import Alert from '@app/components/Common/Alert';
 import Button from '@app/components/Common/Button';
 import ImageFader from '@app/components/Common/ImageFader';
 import PageTitle from '@app/components/Common/PageTitle';
@@ -16,16 +17,14 @@ import defineMessages from '@app/utils/defineMessages';
 import { MediaServerType } from '@server/constants/server';
 import type { Library } from '@server/lib/settings';
 import axios from 'axios';
-import Image from 'next/image';
 import { useRouter } from 'next/router';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR, { mutate } from 'swr';
 import SetupLogin from './SetupLogin';
 
 const messages = defineMessages('components.Setup', {
-  welcome: 'Welcome to Jellyseerr',
+  welcome: 'Welcome to Seerr',
   subtitle: 'Get started by choosing your media server',
   configjellyfin: 'Configure Jellyfin',
   configplex: 'Configure Plex',
@@ -39,22 +38,19 @@ const messages = defineMessages('components.Setup', {
   configuremediaserver: 'Configure Media Server',
   configureservices: 'Configure Services',
   librarieserror:
-    'Validation failed. Please toggle the libraries again to continue.',
+    'Unable to load libraries from your media server. Check that it is reachable and still configured correctly.',
 });
 
 const Setup = () => {
   const intl = useIntl();
   const [isUpdating, setIsUpdating] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
-  const [mediaServerSettingsComplete, setMediaServerSettingsComplete] =
-    useState(false);
   const [mediaServerType, setMediaServerType] = useState(
     MediaServerType.NOT_CONFIGURED
   );
   const router = useRouter();
   const { locale } = useLocale();
   const settings = useSettings();
-  const toasts = useToasts();
 
   const finishSetup = async () => {
     setIsUpdating(true);
@@ -71,34 +67,21 @@ const Setup = () => {
     }
   };
 
-  const validateLibraries = useCallback(async () => {
-    try {
-      const endpointMap: Record<MediaServerType, string> = {
-        [MediaServerType.JELLYFIN]: '/api/v1/settings/jellyfin',
-        [MediaServerType.EMBY]: '/api/v1/settings/jellyfin',
-        [MediaServerType.PLEX]: '/api/v1/settings/plex',
-        [MediaServerType.NOT_CONFIGURED]: '',
-      };
+  const mediaServerSettingsEndpoint: Record<MediaServerType, string | null> = {
+    [MediaServerType.JELLYFIN]: '/api/v1/settings/jellyfin',
+    [MediaServerType.EMBY]: '/api/v1/settings/jellyfin',
+    [MediaServerType.PLEX]: '/api/v1/settings/plex',
+    [MediaServerType.NOT_CONFIGURED]: null,
+  };
 
-      const endpoint = endpointMap[mediaServerType];
-      if (!endpoint) return;
+  const { data: mediaServerSettings, error: mediaServerSettingsError } =
+    useSWR<{ libraries: Library[] }>(
+      currentStep === 3 ? mediaServerSettingsEndpoint[mediaServerType] : null
+    );
 
-      const response = await axios.get(endpoint);
-
-      const hasEnabledLibraries = response.data?.libraries?.some(
-        (library: Library) => library.enabled
-      );
-
-      setMediaServerSettingsComplete(hasEnabledLibraries);
-    } catch (e) {
-      toasts.addToast(intl.formatMessage(messages.librarieserror), {
-        autoDismiss: true,
-        appearance: 'error',
-      });
-
-      setMediaServerSettingsComplete(false);
-    }
-  }, [intl, mediaServerType, toasts]);
+  const mediaServerSettingsComplete = !!mediaServerSettings?.libraries?.some(
+    (library) => library.enabled
+  );
 
   const { data: backdrops } = useSWR<string[]>('/api/v1/backdrops', {
     refreshInterval: 0,
@@ -124,23 +107,10 @@ const Setup = () => {
     settings.currentSettings.mediaServerType,
     settings.currentSettings.initialized,
     router,
-    toasts,
     intl,
     currentStep,
     mediaServerType,
-    validateLibraries,
   ]);
-
-  useEffect(() => {
-    if (currentStep === 3) {
-      validateLibraries();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStep]);
-
-  const handleComplete = () => {
-    validateLibraries();
-  };
 
   if (settings.currentSettings.initialized) return <></>;
 
@@ -154,7 +124,7 @@ const Setup = () => {
           ) ?? []
         }
       />
-      <div className="absolute top-4 right-4 z-50">
+      <div className="absolute right-4 top-4 z-50">
         <LanguagePicker />
       </div>
       <div className="relative z-40 px-4 sm:mx-auto sm:w-full sm:max-w-4xl">
@@ -166,7 +136,7 @@ const Setup = () => {
         <AppDataWarning />
         <nav className="relative z-50">
           <ul
-            className="divide-y divide-gray-600 rounded-md border border-gray-600 bg-gray-800 bg-opacity-50 md:flex md:divide-y-0"
+            className="divide-y divide-gray-600 rounded-md border border-gray-600 bg-gray-800/50 md:flex md:divide-y-0"
             style={{ backdropFilter: 'blur(5px)' }}
           >
             <SetupSteps
@@ -195,7 +165,7 @@ const Setup = () => {
             />
           </ul>
         </nav>
-        <div className="mt-10 w-full rounded-md border border-gray-600 bg-gray-800 bg-opacity-50 p-4 text-white">
+        <div className="mt-10 w-full rounded-md border border-gray-600 bg-gray-800/50 p-4 text-white">
           {currentStep === 1 && (
             <div className="flex flex-col items-center pb-6">
               <div className="mb-2 flex justify-center text-xl font-bold">
@@ -206,7 +176,7 @@ const Setup = () => {
               </div>
               <div className="grid grid-cols-3">
                 <div className="flex flex-col divide-y divide-gray-600 rounded-l border border-gray-600 py-2">
-                  <div className="mb-2 flex flex-1 items-center justify-center py-2 px-2">
+                  <div className="mb-2 flex flex-1 items-center justify-center px-2 py-2">
                     <JellyfinLogo className="h-10" />
                   </div>
                   <div className="px-2 pt-2">
@@ -222,7 +192,7 @@ const Setup = () => {
                   </div>
                 </div>
                 <div className="flex flex-col divide-y divide-gray-600 border-y border-gray-600 py-2">
-                  <div className="mb-2 flex flex-1 items-center justify-center py-2 px-2">
+                  <div className="mb-2 flex flex-1 items-center justify-center px-2 py-2">
                     <PlexLogo className="h-8" />
                   </div>
                   <div className="px-2 pt-2">
@@ -238,7 +208,7 @@ const Setup = () => {
                   </div>
                 </div>
                 <div className="flex flex-col divide-y divide-gray-600 rounded-r border border-gray-600 py-2">
-                  <div className="mb-2 flex flex-1 items-center justify-center py-2 px-2">
+                  <div className="mb-2 flex flex-1 items-center justify-center px-2 py-2">
                     <EmbyLogo className="h-9" />
                   </div>
                   <div className="px-2 pt-2">
@@ -268,10 +238,16 @@ const Setup = () => {
           )}
           {currentStep === 3 && (
             <div className="p-2">
+              {!!mediaServerSettingsError && (
+                <Alert
+                  title={intl.formatMessage(messages.librarieserror)}
+                  type="error"
+                />
+              )}
               {mediaServerType === MediaServerType.PLEX ? (
-                <SettingsPlex onComplete={handleComplete} />
+                <SettingsPlex isSetupSettings />
               ) : (
-                <SettingsJellyfin isSetupSettings onComplete={handleComplete} />
+                <SettingsJellyfin isSetupSettings />
               )}
               <div className="actions">
                 <div className="flex justify-end">

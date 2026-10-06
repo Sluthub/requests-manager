@@ -4,34 +4,55 @@ import { Router } from 'express';
 
 const router = Router();
 
-const tmdbImageProxy = new ImageProxy('tmdb', 'https://image.tmdb.org', {
-  rateLimitOptions: {
-    maxRequests: 20,
-    maxRPS: 50,
-  },
-});
-const tvdbImageProxy = new ImageProxy('tvdb', 'https://artworks.thetvdb.com', {
-  rateLimitOptions: {
-    maxRequests: 20,
-    maxRPS: 50,
-  },
-});
+// Delay the initialization of ImageProxy instances until the proxy (if any) is properly configured
+let _tmdbImageProxy: ImageProxy;
+function initTmdbImageProxy() {
+  if (!_tmdbImageProxy) {
+    _tmdbImageProxy = new ImageProxy('tmdb', 'https://image.tmdb.org', {
+      rateLimitOptions: {
+        maxRequests: 20,
+        maxRPS: 50,
+      },
+    });
+  }
+  return _tmdbImageProxy;
+}
+let _tvdbImageProxy: ImageProxy;
+function initTvdbImageProxy() {
+  if (!_tvdbImageProxy) {
+    _tvdbImageProxy = new ImageProxy('tvdb', 'https://artworks.thetvdb.com', {
+      rateLimitOptions: {
+        maxRequests: 20,
+        maxRPS: 50,
+      },
+    });
+  }
+  return _tvdbImageProxy;
+}
 
-router.get('/:type/*', async (req, res) => {
-  const imagePath = req.path.replace(/^\/\w+/, '');
+router.get<{
+  type: string;
+  path: string[];
+}>('/:type/*path', async (req, res, next) => {
+  const imagePath = '/' + req.params.path.join('/');
+
+  if (imagePath.startsWith('//') || imagePath.includes('://')) {
+    logger.error('Invalid URL for image proxy', { imagePath });
+    return next({ status: 403, message: 'Invalid URL for image proxy.' });
+  }
+
   try {
     let imageData;
     if (req.params.type === 'tmdb') {
-      imageData = await tmdbImageProxy.getImage(imagePath);
+      imageData = await initTmdbImageProxy().getImage(imagePath);
     } else if (req.params.type === 'tvdb') {
-      imageData = await tvdbImageProxy.getImage(imagePath);
+      imageData = await initTvdbImageProxy().getImage(imagePath);
     } else {
       logger.error('Unsupported image type', {
         imagePath,
         type: req.params.type,
       });
-      res.status(400).send('Unsupported image type');
-      return;
+      return next({ status: 400, message: 'Unsupported image type.' });
     }
 
     res.writeHead(200, {
@@ -48,7 +69,10 @@ router.get('/:type/*', async (req, res) => {
       imagePath,
       errorMessage: e.message,
     });
-    res.status(500).send();
+    if (!res.headersSent) {
+      return next({ status: 500, message: 'Failed to proxy image.' });
+    }
+    next(e);
   }
 });
 

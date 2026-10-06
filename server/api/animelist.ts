@@ -48,6 +48,7 @@ export interface AnidbItem {
   tvdbId?: number;
   tmdbId?: number;
   imdbId?: string;
+  tvdbSeason?: number;
 }
 
 class AnimeListMapping {
@@ -97,6 +98,7 @@ class AnimeListMapping {
           tvdbId: anime.$.defaulttvdbseason === '0' ? undefined : tvdbId,
           tmdbId: tmdbId,
           imdbId: imdbIds[0], // this is used for one AniDB -> one imdb movie mapping
+          tvdbSeason: Number(anime.$.defaulttvdbseason),
         };
 
         if (tvdbId) {
@@ -152,7 +154,9 @@ class AnimeListMapping {
         { label: 'Anime-List Sync' }
       );
     } catch (e) {
-      throw new Error(`Failed to load Anime-List mappings: ${e.message}`);
+      throw new Error(`Failed to load Anime-List mappings: ${e.message}`, {
+        cause: e,
+      });
     }
   };
 
@@ -171,7 +175,9 @@ class AnimeListMapping {
         response.data.pipe(writer);
       });
     } catch (e) {
-      throw new Error(`Failed to download Anime-List mapping: ${e.message}`);
+      throw new Error(`Failed to download Anime-List mapping: ${e.message}`, {
+        cause: e,
+      });
     }
   };
 

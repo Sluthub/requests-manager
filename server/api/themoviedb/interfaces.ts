@@ -220,7 +220,7 @@ export interface TmdbTvEpisodeResult {
   show_id: number;
   still_path: string;
   vote_average: number;
-  vote_cuont: number;
+  vote_count: number;
 }
 
 export interface TmdbTvSeasonResult {
@@ -301,6 +301,16 @@ export interface TmdbTvDetails {
   'watch/providers'?: {
     id: number;
     results?: { [iso_3166_1: string]: TmdbWatchProviders };
+  };
+}
+
+export interface TmdbTvScanDetails {
+  id: number;
+  name: string;
+  seasons: TmdbTvSeasonResult[];
+  external_ids: TmdbExternalIds;
+  keywords: {
+    results: TmdbKeyword[];
   };
 }
 
@@ -392,8 +402,10 @@ export interface TmdbPersonCombinedCredits {
   crew: TmdbPersonCreditCrew[];
 }
 
-export interface TmdbSeasonWithEpisodes
-  extends Omit<TmdbTvSeasonResult, 'episode_count'> {
+export interface TmdbSeasonWithEpisodes extends Omit<
+  TmdbTvSeasonResult,
+  'episode_count'
+> {
   episodes: TmdbTvEpisodeResult[];
   external_ids: TmdbExternalIds;
 }

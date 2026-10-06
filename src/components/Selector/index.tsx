@@ -12,7 +12,6 @@ import type {
   TmdbGenre,
   TmdbKeywordSearchResponse,
 } from '@server/api/themoviedb/interfaces';
-import type { GenreSliderItem } from '@server/interfaces/api/discoverInterfaces';
 import type { UserResultsResponse } from '@server/interfaces/api/userInterfaces';
 import type {
   Keyword,
@@ -20,7 +19,7 @@ import type {
   WatchProviderDetails,
 } from '@server/models/common';
 import axios from 'axios';
-import { orderBy } from 'lodash';
+import orderBy from 'lodash/orderBy';
 import { useEffect, useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
 import type { MultiValue, SingleValue } from 'react-select';
@@ -185,9 +184,7 @@ export const GenreSelector = ({
   }, [defaultValue, type]);
 
   const loadGenreOptions = async (inputValue: string) => {
-    const results = await axios.get<GenreSliderItem[]>(
-      `/api/v1/discover/genreslider/${type}`
-    );
+    const results = await axios.get<TmdbGenre[]>(`/api/v1/genres/${type}`);
 
     return results.data
       .map((result) => ({
@@ -201,7 +198,7 @@ export const GenreSelector = ({
 
   return (
     <AsyncSelect
-      key={`genre-select-${defaultDataValue}`}
+      key={`genre-select-${type}-${defaultDataValue}`}
       className="react-select-container"
       classNamePrefix="react-select"
       defaultValue={isMulti ? defaultDataValue : defaultDataValue?.[0]}
@@ -297,36 +294,40 @@ export const KeywordSelector = ({
   onChange,
 }: BaseSelectorMultiProps | BaseSelectorSingleProps) => {
   const intl = useIntl();
-  const [defaultDataValue, setDefaultDataValue] = useState<
-    { label: string; value: number }[] | null
+  const [selectedValue, setSelectedValue] = useState<
+    MultiValue<SingleVal> | SingleValue<SingleVal> | null
   >(null);
 
   useEffect(() => {
     const loadDefaultKeywords = async (): Promise<void> => {
       if (!defaultValue) {
+        setSelectedValue(null);
         return;
       }
 
       const keywords = await Promise.all(
         defaultValue.split(',').map(async (keywordId) => {
-          const keyword = await axios.get<Keyword>(
+          const keyword = await axios.get<Keyword | null>(
             `/api/v1/keyword/${keywordId}`
           );
-
           return keyword.data;
         })
       );
 
-      setDefaultDataValue(
-        keywords.map((keyword) => ({
-          label: keyword.name,
-          value: keyword.id,
-        }))
+      const validKeywords: Keyword[] = keywords.filter(
+        (keyword): keyword is Keyword => keyword !== null
       );
+
+      const nextValue = validKeywords.map((keyword) => ({
+        label: keyword.name,
+        value: keyword.id,
+      }));
+
+      setSelectedValue(isMulti ? nextValue : (nextValue[0] ?? null));
     };
 
     loadDefaultKeywords();
-  }, [defaultValue]);
+  }, [defaultValue, isMulti]);
 
   const loadKeywordOptions = async (inputValue: string) => {
     const results = await axios.get<TmdbKeywordSearchResponse>(
@@ -346,7 +347,6 @@ export const KeywordSelector = ({
 
   return (
     <AsyncSelect
-      key={`keyword-select-${defaultDataValue}`}
       inputId="data"
       isMulti={isMulti}
       isDisabled={isDisabled}
@@ -357,10 +357,11 @@ export const KeywordSelector = ({
           ? intl.formatMessage(messages.starttyping)
           : intl.formatMessage(messages.nooptions)
       }
-      defaultValue={defaultDataValue}
+      value={selectedValue}
       loadOptions={loadKeywordOptions}
       placeholder={intl.formatMessage(messages.searchKeywords)}
       onChange={(value) => {
+        setSelectedValue(value);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         onChange(value as any);
       }}
@@ -388,8 +389,8 @@ export const WatchProviderSelector = ({
     region
       ? region
       : currentSettings.discoverRegion
-      ? currentSettings.discoverRegion
-      : 'US'
+        ? currentSettings.discoverRegion
+        : 'US'
   );
   const [activeProvider, setActiveProvider] = useState<number[]>(
     activeProviders ?? []
@@ -452,7 +453,7 @@ export const WatchProviderSelector = ({
                   key={`prodiver-${provider.id}`}
                 >
                   <div
-                    className={`provider-container w-full cursor-pointer rounded-lg ring-1 ${
+                    className={`provider-container relative w-full cursor-pointer rounded-lg ring-1 ${
                       isActive
                         ? 'bg-gray-600 ring-indigo-500 hover:bg-gray-500'
                         : 'bg-gray-700 ring-gray-500 hover:bg-gray-600'
@@ -476,7 +477,7 @@ export const WatchProviderSelector = ({
                       />
                     </div>
                     {isActive && (
-                      <div className="pointer-events-none absolute -top-1 -left-1 flex items-center justify-center text-indigo-100 opacity-90">
+                      <div className="pointer-events-none absolute -left-1 -top-1 flex items-center justify-center text-indigo-100 opacity-90">
                         <CheckCircleIcon className="h-6 w-6" />
                       </div>
                     )}
@@ -495,7 +496,7 @@ export const WatchProviderSelector = ({
                     key={`prodiver-${provider.id}`}
                   >
                     <div
-                      className={`provider-container w-full cursor-pointer rounded-lg ring-1 transition ${
+                      className={`provider-container relative w-full cursor-pointer rounded-lg ring-1 transition ${
                         isActive
                           ? 'bg-gray-600 ring-indigo-500 hover:bg-gray-500'
                           : 'bg-gray-700 ring-gray-500 hover:bg-gray-600'
@@ -519,7 +520,7 @@ export const WatchProviderSelector = ({
                         />
                       </div>
                       {isActive && (
-                        <div className="pointer-events-none absolute -top-1 -left-1 flex items-center justify-center text-indigo-100 opacity-90">
+                        <div className="pointer-events-none absolute -left-1 -top-1 flex items-center justify-center text-indigo-100 opacity-90">
                           <CheckCircleIcon className="h-6 w-6" />
                         </div>
                       )}

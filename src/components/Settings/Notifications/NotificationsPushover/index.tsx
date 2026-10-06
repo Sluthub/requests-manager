@@ -1,6 +1,7 @@
 import Button from '@app/components/Common/Button';
 import LoadingSpinner from '@app/components/Common/LoadingSpinner';
 import NotificationTypeSelector from '@app/components/NotificationTypeSelector';
+import useToasts from '@app/hooks/useToasts';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { ArrowDownOnSquareIcon, BeakerIcon } from '@heroicons/react/24/outline';
@@ -9,7 +10,6 @@ import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR from 'swr';
 import * as Yup from 'yup';
 
@@ -17,9 +17,10 @@ const messages = defineMessages(
   'components.Settings.Notifications.NotificationsPushover',
   {
     agentenabled: 'Enable Agent',
+    embedPoster: 'Embed Poster',
     accessToken: 'Application API Token',
     accessTokenTip:
-      '<ApplicationRegistrationLink>Register an application</ApplicationRegistrationLink> for use with Jellyseerr',
+      '<ApplicationRegistrationLink>Register an application</ApplicationRegistrationLink> for use with Seerr',
     userToken: 'User or Group Key',
     userTokenTip:
       'Your 30-character <UsersGroupsLink>user or group identifier</UsersGroupsLink>',
@@ -48,17 +49,25 @@ const NotificationsPushover = () => {
   const { data: soundsData } = useSWR<PushoverSound[]>(
     data?.options.accessToken
       ? `/api/v1/settings/notifications/pushover/sounds?token=${data.options.accessToken}`
-      : null
+      : null,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      shouldRetryOnError: false,
+    }
   );
 
   const NotificationsPushoverSchema = Yup.object().shape({
     accessToken: Yup.string()
       .when('enabled', {
         is: true,
-        then: Yup.string()
-          .nullable()
-          .required(intl.formatMessage(messages.validationAccessTokenRequired)),
-        otherwise: Yup.string().nullable(),
+        then: (schema) =>
+          schema
+            .nullable()
+            .required(
+              intl.formatMessage(messages.validationAccessTokenRequired)
+            ),
+        otherwise: (schema) => schema.nullable(),
       })
       .matches(
         /^[a-z\d]{30}$/i,
@@ -67,10 +76,11 @@ const NotificationsPushover = () => {
     userToken: Yup.string()
       .when('enabled', {
         is: true,
-        then: Yup.string()
-          .nullable()
-          .required(intl.formatMessage(messages.validationUserTokenRequired)),
-        otherwise: Yup.string().nullable(),
+        then: (schema) =>
+          schema
+            .nullable()
+            .required(intl.formatMessage(messages.validationUserTokenRequired)),
+        otherwise: (schema) => schema.nullable(),
       })
       .matches(
         /^[a-z\d]{30}$/i,
@@ -86,6 +96,7 @@ const NotificationsPushover = () => {
     <Formik
       initialValues={{
         enabled: data?.enabled,
+        embedPoster: data?.embedPoster,
         types: data?.types,
         accessToken: data?.options.accessToken,
         userToken: data?.options.userToken,
@@ -96,6 +107,7 @@ const NotificationsPushover = () => {
         try {
           await axios.post('/api/v1/settings/notifications/pushover', {
             enabled: values.enabled,
+            embedPoster: values.embedPoster,
             types: values.types,
             options: {
               accessToken: values.accessToken,
@@ -107,7 +119,7 @@ const NotificationsPushover = () => {
             appearance: 'success',
             autoDismiss: true,
           });
-        } catch (e) {
+        } catch {
           addToast(intl.formatMessage(messages.pushoversettingsfailed), {
             appearance: 'error',
             autoDismiss: true,
@@ -142,6 +154,7 @@ const NotificationsPushover = () => {
             );
             await axios.post('/api/v1/settings/notifications/pushover/test', {
               enabled: true,
+              embedPoster: values.embedPoster,
               types: values.types,
               options: {
                 accessToken: values.accessToken,
@@ -157,7 +170,7 @@ const NotificationsPushover = () => {
               autoDismiss: true,
               appearance: 'success',
             });
-          } catch (e) {
+          } catch {
             if (toastId) {
               removeToast(toastId);
             }
@@ -179,6 +192,14 @@ const NotificationsPushover = () => {
               </label>
               <div className="form-input-area">
                 <Field type="checkbox" id="enabled" name="enabled" />
+              </div>
+            </div>
+            <div className="form-row">
+              <label htmlFor="embedPoster" className="checkbox-label">
+                {intl.formatMessage(messages.embedPoster)}
+              </label>
+              <div className="form-input-area">
+                <Field type="checkbox" id="embedPoster" name="embedPoster" />
               </div>
             </div>
             <div className="form-row">

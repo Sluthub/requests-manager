@@ -1,40 +1,5 @@
+import { type AvailableLocale } from '@server/types/languages';
 import React from 'react';
-
-export type AvailableLocale =
-  | 'ar'
-  | 'bg'
-  | 'ca'
-  | 'cs'
-  | 'da'
-  | 'de'
-  | 'en'
-  | 'el'
-  | 'es'
-  | 'es-MX'
-  | 'fi'
-  | 'fr'
-  | 'hr'
-  | 'he'
-  | 'hi'
-  | 'hu'
-  | 'it'
-  | 'ja'
-  | 'ko'
-  | 'lt'
-  | 'nb-NO'
-  | 'nl'
-  | 'pl'
-  | 'pt-BR'
-  | 'pt-PT'
-  | 'ro'
-  | 'ru'
-  | 'sq'
-  | 'sr'
-  | 'sv'
-  | 'tr'
-  | 'uk'
-  | 'zh-CN'
-  | 'zh-TW';
 
 type AvailableLanguageObject = Record<
   string,
@@ -74,6 +39,10 @@ export const availableLanguages: AvailableLanguageObject = {
     code: 'es-MX',
     display: 'Español (Latinoamérica)',
   },
+  et: {
+    code: 'et',
+    display: 'Eesti',
+  },
   fi: {
     code: 'fi',
     display: 'Finnish',
@@ -97,6 +66,10 @@ export const availableLanguages: AvailableLanguageObject = {
   it: {
     code: 'it',
     display: 'Italiano',
+  },
+  lb: {
+    code: 'lb',
+    display: 'Lëtzebuergesch',
   },
   lt: {
     code: 'lt',
@@ -169,6 +142,10 @@ export const availableLanguages: AvailableLanguageObject = {
   uk: {
     code: 'uk',
     display: 'українська мова',
+  },
+  vi: {
+    code: 'vi',
+    display: 'Tiếng Việt',
   },
   'zh-TW': {
     code: 'zh-TW',

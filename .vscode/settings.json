@@ -20,5 +20,15 @@
   "files.associations": {
     "globals.css": "tailwindcss"
   },
-  "i18n-ally.localesPaths": ["src/i18n/locale"]
+  "i18n-ally.localesPaths": [
+    "src/i18n/locale"
+  ],
+  "yaml.format.singleQuote": true,
+  "jestrunner.enableTestExplorer": true,
+  "jestrunner.defaultTestPatterns": [
+    "server/**/*.{test,spec}.?(c|m)[jt]s?(x)",
+  ],
+  "jestrunner.nodeTestCommand": "pnpm test",
+  "jestrunner.changeDirectoryToWorkspaceRoot": true,
+  "jestrunner.projectPath": "."
 }
