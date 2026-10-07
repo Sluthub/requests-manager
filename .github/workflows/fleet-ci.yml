@@ -38,3 +38,43 @@ jobs:
         run: pnpm test --test-reporter tap
       - name: Build
         run: pnpm build
+
+  auxiliary-tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        with:
+          version: 10.24.0
+      - name: Verify documentation toolchain
+        working-directory: gen-docs
+        env:
+          DOCUSAURUS_SSG_WORKER_THREADS: '2'
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm gen-api-docs
+          pnpm typecheck
+          pnpm build
+          pnpm audit --audit-level critical
+      - name: Verify issue duplicate tooling without external writes
+        working-directory: bin/duplicate-detector
+        run: |
+          pnpm install --frozen-lockfile
+          node --check build-index.mjs
+          node --check detect.mjs
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import {pipeline, Tensor} from '@huggingface/transformers';
+          import {dotProduct, issueText} from './utils.mjs';
+          assert.equal(typeof pipeline, 'function');
+          const vector = new Tensor('float32', new Float32Array([0.6, 0.8]), [2]);
+          assert.ok(Math.abs(dotProduct(vector.data, vector.data) - 1) < 1e-6);
+          assert.equal(issueText('Synthetic issue', '### Description\nSame failure\n_No response_'), 'Synthetic issue\n\nSame failure');
+          JS
+          pnpm audit

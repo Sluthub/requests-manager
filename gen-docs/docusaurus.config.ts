@@ -13,8 +13,14 @@ const config: Config = {
   trailingSlash: true,
 
   future: {
+    v4: {
+      removeLegacyPostBuildHeadAttribute: Boolean(
+        process.env.DOCUSAURUS_SSG_WORKER_THREADS
+      ),
+    },
     faster: {
       swcJsMinimizer: true,
+      ssgWorkerThreads: Boolean(process.env.DOCUSAURUS_SSG_WORKER_THREADS),
     },
   },
 

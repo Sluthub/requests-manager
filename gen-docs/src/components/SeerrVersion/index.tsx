@@ -26,9 +26,12 @@ export const SeerrVersion = () => {
 };
 
 export const NixpkgVersion = () => {
-  const [versions, setVersions] = useState(null);
+  const [versions, setVersions] = useState<{
+    unstable: string;
+    stable: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchVersion = async () => {
@@ -59,7 +62,7 @@ export const NixpkgVersion = () => {
         setVersions({ unstable: unstableVersion, stable: stableVersion });
         setLoading(false);
       } catch (err) {
-        setError(err.message);
+        setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       }
     };

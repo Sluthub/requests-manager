@@ -9,7 +9,7 @@
     "detect": "node detect.mjs"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.0.0"
+    "@huggingface/transformers": "^4.3.1"
   },
   "engines": {
     "node": ">=22.0"
