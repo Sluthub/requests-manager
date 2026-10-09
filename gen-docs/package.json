@@ -61,7 +61,9 @@
       "css-minimizer-webpack-plugin>serialize-javascript": "7.0.5",
       "yaml@>=1.0.0 <1.10.3": "1.10.3",
       "yaml@>=2.0.0 <2.8.3": "2.8.3",
-      "js-yaml@>=4.0.0 <4.3.2": "4.3.2"
+      "js-yaml@>=4.0.0 <4.3.2": "4.3.2",
+      "uuid@<11.1.1": "11.1.1",
+      "postcss-selector-parser@<7.1.6": "7.1.6"
     }
   }
 }
