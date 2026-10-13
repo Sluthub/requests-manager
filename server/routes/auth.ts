@@ -10,6 +10,7 @@ import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import { isAuthenticated } from '@server/middleware/auth';
+import { authenticationRateLimiter as authLimit } from '@server/middleware/credentialRateLimit';
 import { checkAvatarChanged } from '@server/routes/avatarproxy';
 import { ApiError } from '@server/types/error';
 import { getAppVersion } from '@server/utils/appVersion';
@@ -66,7 +67,7 @@ authRoutes.get('/me', isAuthenticated(), async (req, res) => {
   });
 });
 
-authRoutes.post('/plex', async (req, res, next) => {
+authRoutes.post('/plex', authLimit, async (req, res, next) => {
   const settings = getSettings();
   const userRepository = getRepository(User);
   const body = req.body as { authToken?: string };
@@ -243,7 +244,7 @@ function getUserAvatarUrl(user: User): string {
   return `/avatarproxy/${user.jellyfinUserId}?v=${user.avatarVersion}`;
 }
 
-authRoutes.post('/jellyfin', async (req, res, next) => {
+authRoutes.post('/jellyfin', authLimit, async (req, res, next) => {
   const settings = getSettings();
   const userRepository = getRepository(User);
   const body = req.body as {
@@ -714,6 +715,7 @@ authRoutes.get('/jellyfin/quickconnect/check', async (req, res, next) => {
 
 authRoutes.post(
   '/jellyfin/quickconnect/authenticate',
+  authLimit,
   async (req, res, next) => {
     const settings = getSettings();
     const userRepository = getRepository(User);
@@ -850,7 +852,7 @@ authRoutes.post(
   }
 );
 
-authRoutes.post('/local', async (req, res, next) => {
+authRoutes.post('/local', authLimit, async (req, res, next) => {
   const settings = getSettings();
   const userRepository = getRepository(User);
   const body = req.body as { email?: string; password?: string };

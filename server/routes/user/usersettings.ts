@@ -14,6 +14,7 @@ import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import { isAuthenticated } from '@server/middleware/auth';
+import { accountLinkRateLimiter } from '@server/middleware/credentialRateLimit';
 import { quickConnectSecret } from '@server/routes/auth';
 import { ApiError } from '@server/types/error';
 import { getHostname } from '@server/utils/getHostname';
@@ -363,6 +364,7 @@ userSettingsRoutes.delete<{ id: string }>(
 userSettingsRoutes.post<{ username: string; password: string }>(
   '/linked-accounts/jellyfin',
   isOwnProfile(),
+  accountLinkRateLimiter,
   async (req, res) => {
     const settings = getSettings();
     const userRepository = getRepository(User);
@@ -518,6 +520,7 @@ userSettingsRoutes.delete<{ id: string }>(
 userSettingsRoutes.post<{ secret: string }>(
   '/linked-accounts/jellyfin/quickconnect',
   isOwnProfile(),
+  accountLinkRateLimiter,
   async (req, res) => {
     const settings = getSettings();
     const userRepository = getRepository(User);

@@ -927,3 +927,18 @@ describe('POST /auth/reset-password/:guid', () => {
     assert.strictEqual(second.status, 500);
   });
 });
+
+describe('credential throttling', () => {
+  it('blocks repeated malformed Quick Connect authentication before calling Jellyfin', async () => {
+    const callsBefore = authenticateQCMock.mock.calls.length;
+    let status = 0;
+    for (let i = 0; i < 51 && status !== 429; i++) {
+      const result = await request(app)
+        .post('/auth/jellyfin/quickconnect/authenticate')
+        .send({ secret: 'bad' });
+      status = result.status;
+    }
+    assert.equal(status, 429);
+    assert.equal(authenticateQCMock.mock.calls.length, callsBefore);
+  });
+});
