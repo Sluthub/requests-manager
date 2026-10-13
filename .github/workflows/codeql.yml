@@ -4,15 +4,16 @@ name: 'CodeQL'
 
 on:
   push:
-    branches: ['develop']
+    branches: ['main', 'develop']
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
   pull_request:
-    branches: ['develop']
+    branches: ['main', 'develop']
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
+  workflow_dispatch:
   schedule:
     - cron: '50 7 * * 5'
 
