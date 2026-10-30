@@ -16,13 +16,17 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.23.4', '26.13.0']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: '22.23.4'
+          node-version: ${{ matrix.node }}
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
         with:
           version: 10.24.0
@@ -38,6 +42,77 @@ jobs:
         run: pnpm test --test-reporter tap
       - name: Build
         run: pnpm build
+
+  container-compatibility:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build the production image
+        run: docker build --build-arg COMMIT_TAG="$GITHUB_SHA" --tag requests-node26:ci .
+      - name: Exercise native modules on Alpine
+        run: |
+          docker run --rm -i --network none --entrypoint node requests-node26:ci <<'JS'
+          const assert = require('node:assert/strict');
+          const sqlite3 = require('sqlite3');
+          const bcrypt = require('bcrypt');
+          const sharp = require('sharp');
+          (async () => {
+            assert.equal(process.version, 'v26.13.0');
+            const db = new sqlite3.Database(':memory:');
+            try {
+              const row = await new Promise((resolve, reject) => {
+                db.get('SELECT 42 AS value', (error, value) => error ? reject(error) : resolve(value));
+              });
+              assert.equal(row.value, 42);
+            } finally {
+              await new Promise((resolve, reject) => db.close(error => error ? reject(error) : resolve()));
+            }
+            const hash = await bcrypt.hash('synthetic-container-check', 4);
+            assert.equal(await bcrypt.compare('synthetic-container-check', hash), true);
+            const png = await sharp({create: {width: 2, height: 3, channels: 3, background: '#000000'}}).png().toBuffer();
+            const metadata = await sharp(png).metadata();
+            assert.equal(metadata.width, 2);
+            assert.equal(metadata.height, 3);
+            console.log('Node 26 Alpine: sqlite3, bcrypt and sharp passed');
+          })().catch(error => {console.error(error); process.exitCode = 1;});
+          JS
+      - name: Start the application with an empty container database
+        run: |
+          docker run --detach --network none --name requests-node26-smoke requests-node26:ci
+          docker exec -i requests-node26-smoke node <<'JS'
+          const assert = require('node:assert/strict');
+          (async () => {
+            for (let attempt = 0; attempt < 120; attempt++) {
+              try {
+                const response = await fetch('http://127.0.0.1:5055/api/v1/status?checkUpdateAvailable=false', {signal: AbortSignal.timeout(2000)});
+                assert.equal(response.status, 200);
+                const status = await response.json();
+                assert.equal(typeof status.version, 'string');
+                assert.equal(status.restartRequired, false);
+                const settingsResponse = await fetch('http://127.0.0.1:5055/api/v1/settings/public', {signal: AbortSignal.timeout(2000)});
+                assert.equal(settingsResponse.status, 200);
+                const settings = await settingsResponse.json();
+                assert.equal(settings.initialized, false);
+                console.log(JSON.stringify({version: status.version, initialized: settings.initialized}));
+                return;
+              } catch (error) {
+                if (attempt === 119) throw error;
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+            }
+          })().catch(error => {console.error(error); process.exitCode = 1;});
+          JS
+      - name: Stop the test container
+        if: always()
+        run: |
+          if docker container inspect requests-node26-smoke >/dev/null 2>&1; then
+            docker logs requests-node26-smoke
+            docker rm --force requests-node26-smoke
+          fi
 
   auxiliary-tools:
     runs-on: ubuntu-24.04

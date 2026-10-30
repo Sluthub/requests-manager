@@ -5,7 +5,7 @@ ENV TARGETPLATFORM=${TARGETPLATFORM:-linux/amd64}
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+RUN npm install --global pnpm@10.24.0
 
 COPY . ./app
 WORKDIR /app
