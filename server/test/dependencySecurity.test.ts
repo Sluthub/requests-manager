@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { channel } from 'node:diagnostics_channel';
 import { once } from 'node:events';
 import http from 'node:http';
+import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { runInNewContext } from 'node:vm';
 import { gzipSync } from 'node:zlib';
 import nodemailer from 'nodemailer';
 import { Agent, fetch as undiciFetch } from 'undici';
@@ -182,5 +184,81 @@ test('undici handles excessive content encodings without a late stream crash', a
     headers.unsubscribe(observe);
     await dispatcher.close();
     await closeServer(server);
+  }
+});
+
+test('cross-realm credential headers are removed on cross-origin redirects', async () => {
+  const axiosRequire = createRequire(require.resolve('axios/package.json'));
+  const redirects = axiosRequire('follow-redirects') as {
+    http: {
+      request(
+        options: http.RequestOptions & { sensitiveHeaders: string[] },
+        callback: (response: http.IncomingMessage) => void
+      ): http.ClientRequest;
+    };
+  };
+  let firstCredential: string | string[] | undefined;
+  let destinationHeaders: http.IncomingHttpHeaders | undefined;
+  const destination = http.createServer((request, response) => {
+    destinationHeaders = request.headers;
+    response.end('redirect destination');
+  });
+  const origin = http.createServer((request, response) => {
+    firstCredential = request.headers['x-fixture-credential'];
+    const address = destination.address();
+    assert.ok(address && typeof address !== 'string');
+    response.writeHead(302, {
+      Location: `http://127.0.0.1:${address.port}/destination`,
+    });
+    response.end();
+  });
+
+  try {
+    destination.listen(0, '127.0.0.1');
+    await once(destination, 'listening');
+    origin.listen(0, '127.0.0.1');
+    await once(origin, 'listening');
+    const address = origin.address();
+    assert.ok(address && typeof address !== 'string');
+    const sensitiveHeaders = runInNewContext(
+      '["x-fixture-credential"]'
+    ) as string[];
+    assert.equal(Array.isArray(sensitiveHeaders), true);
+    assert.equal(sensitiveHeaders instanceof Array, false);
+
+    const body = await new Promise<string>((resolve, reject) => {
+      const request = redirects.http.request(
+        {
+          hostname: '127.0.0.1',
+          port: address.port,
+          path: '/origin',
+          sensitiveHeaders,
+          headers: {
+            'x-fixture-credential': 'synthetic credential',
+            'x-harmless': 'retained',
+          },
+        },
+        (response) => {
+          let body = '';
+          response.setEncoding('utf8');
+          response.on('data', (chunk) => (body += chunk));
+          response.on('error', reject);
+          response.on('end', () => resolve(body));
+        }
+      );
+      request.on('error', reject);
+      request.setTimeout(3000, () =>
+        request.destroy(new Error('Loopback redirect request timed out'))
+      );
+      request.end();
+    });
+    assert.equal(body, 'redirect destination');
+    assert.equal(firstCredential, 'synthetic credential');
+    assert.ok(destinationHeaders);
+    assert.equal(destinationHeaders['x-fixture-credential'], undefined);
+    assert.equal(destinationHeaders['x-harmless'], 'retained');
+  } finally {
+    if (origin.listening) await closeServer(origin);
+    if (destination.listening) await closeServer(destination);
   }
 });
