@@ -28,12 +28,10 @@
     "docusaurus-theme-openapi-docs": "5.2.0",
     "prism-react-renderer": "^2.4.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwindcss": "^3.4.19"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "3.10.2",
-    "@docusaurus/tsconfig": "3.10.2",
     "@docusaurus/types": "3.10.2",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
