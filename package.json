@@ -231,7 +231,13 @@
       "http-proxy-agent@4.0.1>@tootallnate/once": "2.0.1",
       "qs@>=6.11.1 <6.15.2": "6.16.1",
       "uuid@<11.1.1": "11.1.1",
-      "postcss-selector-parser@<7.1.6": "7.1.6"
+      "postcss-selector-parser@<7.1.6": "7.1.6",
+      "@jest/reporters>glob": "14.0.6",
+      "jest-config>glob": "14.0.6",
+      "jest-runtime>glob": "14.0.6",
+      "typeorm>glob": "14.0.6",
+      "@typescript-eslint/typescript-estree>minimatch": "11.0.9",
+      "nodemon>minimatch": "11.0.9"
     }
   },
   "scarfSettings": {
