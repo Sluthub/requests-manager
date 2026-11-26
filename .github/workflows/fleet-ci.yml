@@ -59,13 +59,20 @@ jobs:
         run: docker build --build-arg COMMIT_TAG="$GITHUB_SHA" --tag requests-node26:ci .
       - name: Exercise native modules on Alpine
         run: |
-          docker run --rm -i --network none --entrypoint node requests-node26:ci <<'JS'
+          runtime_image=$(awk 'toupper($1) == "FROM" { image = $2 } END { print image }' Dockerfile)
+          pinned_runtime='^node:([0-9]+\.[0-9]+\.[0-9]+)-alpine[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$'
+          if [[ ! $runtime_image =~ $pinned_runtime ]]; then
+            echo 'The final Dockerfile stage must use a digest-pinned Node Alpine image' >&2
+            exit 1
+          fi
+          expected_node="v${BASH_REMATCH[1]}"
+          docker run --rm -i --network none --entrypoint node requests-node26:ci - "$expected_node" <<'JS'
           const assert = require('node:assert/strict');
           const sqlite3 = require('sqlite3');
           const bcrypt = require('bcrypt');
           const sharp = require('sharp');
           (async () => {
-            assert.equal(process.version, 'v26.13.0');
+            assert.equal(process.version, process.argv[2]);
             const db = new sqlite3.Database(':memory:');
             try {
               const row = await new Promise((resolve, reject) => {
