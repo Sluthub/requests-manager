@@ -73,7 +73,7 @@
     "mime": "^4.1.0",
     "nanoid": "^5.1.16",
     "next": "16.4.6",
-    "node-gyp": "12.2.0",
+    "node-gyp": "12.4.0",
     "node-schedule": "2.1.1",
     "nodemailer": "10.1.4",
     "openpgp": "6.3.0",
