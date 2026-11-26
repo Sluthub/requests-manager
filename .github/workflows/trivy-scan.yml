@@ -22,7 +22,7 @@ concurrency:
 jobs:
   trivy:
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
-    name: Scan latest container image
+    name: Scan container image
     runs-on: ubuntu-24.04
 
     permissions:
@@ -31,6 +31,7 @@ jobs:
 
     env:
       TRIVY_CACHE_DIR: .trivycache
+      LOCAL_SCAN_IMAGE: requests-manager-trivy:${{ github.sha }}
 
     steps:
       - name: Checkout
@@ -38,6 +39,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      # This fork does not depend on a published release image for scan coverage.
+      - name: Build RequestsManager image
+        if: ${{ github.repository == 'Sluthub/requests-manager' }}
+        shell: bash
+        run: |
+          docker build --build-arg "COMMIT_TAG=$GITHUB_SHA" --tag "$LOCAL_SCAN_IMAGE" .
+          docker image inspect --format '{{.Id}}' "$LOCAL_SCAN_IMAGE"
+          echo "TRIVY_IMAGE_SRC=docker" >> "$GITHUB_ENV"
 
       - name: Cache Trivy DB
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -50,7 +60,7 @@ jobs:
       - name: Run Trivy image scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ghcr.io/${{ github.repository }}:latest
+          image-ref: ${{ github.repository != 'Sluthub/requests-manager' && format('ghcr.io/{0}:latest', github.repository) || env.LOCAL_SCAN_IMAGE }}
           format: sarif
           output: trivy.sarif
           ignore-unfixed: true
