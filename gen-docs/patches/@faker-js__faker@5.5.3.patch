@@ -1,0 +1,29 @@
+diff --git a/lib/fake.js b/lib/fake.js
+--- a/lib/fake.js
++++ b/lib/fake.js
+@@ -61,16 +61,20 @@
+     // split the method into module and function
+     var parts = method.split('.');
+ 
+-    if (typeof faker[parts[0]] === "undefined") {
++    var namespace = Object.getOwnPropertyDescriptor(faker, parts[0]);
++    if (!namespace || !namespace.value || typeof namespace.value !== "object") {
+       throw new Error('Invalid module: ' + parts[0]);
+     }
+ 
+-    if (typeof faker[parts[0]][parts[1]] === "undefined") {
+-      throw new Error('Invalid method: ' + parts[0] + "." + parts[1]);
++    // Templates may only call an own generator on an own object namespace.
++    var generator = parts.length === 2
++      ? Object.getOwnPropertyDescriptor(namespace.value, parts[1])
++      : undefined;
++    if (!generator || typeof generator.value !== "function") {
++      throw new Error('Invalid method: ' + method);
+     }
+ 
+-    // assign the function from the module.function namespace
+-    var fn = faker[parts[0]][parts[1]];
++    var fn = generator.value;
+ 
+     // If parameters are populated here, they are always going to be of string type
+     // since we might actually be dealing with an object or array,
