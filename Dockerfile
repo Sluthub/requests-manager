@@ -50,6 +50,10 @@ RUN pnpm build
 
 RUN rm -rf .next/cache
 
+# Keep the registry archive out of the final image by mounting it from this stage.
+FROM scratch AS npm-runtime-archive
+ADD --checksum=sha256:ee5fc68e724c4bdba38db9d96d9c661d4e736e4be7001ae44d2fbbaa52159514 https://registry.npmjs.org/npm/-/npm-11.21.3.tgz /npm.tgz
+
 FROM node:26.13.1-alpine3.23@sha256:39d8c143e60e99ae98f014bebea1e72fc96d3c9bdf9504bc3a27af5c05bfa39f
 ARG SOURCE_DATE_EPOCH
 ARG COMMIT_TAG
@@ -57,6 +61,27 @@ ENV NODE_ENV=production
 ENV COMMIT_TAG=${COMMIT_TAG}
 
 RUN apk add --no-cache tzdata
+
+# Replace the complete npm release so old bundled dependencies are absent at runtime.
+RUN --network=none --mount=type=bind,from=npm-runtime-archive,source=/npm.tgz,target=/tmp/npm-runtime.tgz \
+    set -eu; \
+    staging_dir="$(mktemp -d)"; \
+    tar -xzf /tmp/npm-runtime.tgz -C "$staging_dir"; \
+    rm -rf /usr/local/lib/node_modules/npm; \
+    mv "$staging_dir/package" /usr/local/lib/node_modules/npm; \
+    rmdir "$staging_dir"; \
+    node -e 'const assert = require("node:assert/strict"); \
+      const { readFileSync } = require("node:fs"); \
+      const root = "/usr/local/lib/node_modules/npm/"; \
+      for (const [path, version] of [ \
+        ["package.json", "11.21.3"], \
+        ["node_modules/undici/package.json", "6.29.1"], \
+        ["node_modules/brace-expansion/package.json", "5.0.12"] \
+      ]) assert.equal(JSON.parse(readFileSync(root + path, "utf8")).version, version, path);'; \
+    test -x /usr/local/bin/npm; \
+    test -x /usr/local/bin/npx; \
+    test "$(readlink -f /usr/local/bin/npm)" = /usr/local/lib/node_modules/npm/bin/npm-cli.js; \
+    test "$(readlink -f /usr/local/bin/npx)" = /usr/local/lib/node_modules/npm/bin/npx-cli.js
 
 USER node:node
 
