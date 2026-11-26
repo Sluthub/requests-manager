@@ -14,6 +14,8 @@ on:
       - 'next.config.ts'
       - 'tsconfig.json'
       - '.github/workflows/cypress.yml'
+      - 'Dockerfile'
+      - 'Dockerfile.local'
   push:
     branches: [develop]
     paths:

@@ -8,6 +8,8 @@ Major versions, pre-1.0 minor changes, maintainer changes, unusual versions and 
 
 Missing or failing CI, unresolved migrations, custom source changes and explicit hold labels are technical blockers for the agent to resolve. They are not a human review queue. Rebased or edited commits invalidate the recorded review.
 
+Node container patches require an exact administrator review naming the PR author and both `Dockerfile` and `Dockerfile.local`. The sole reviewed commit must advance the matching digest-pinned Node patch in both files. Other Dockerfile edits and Alpine version changes require a separate source review. The gate requires Cypress and both Alpine container jobs on the reviewed PR head and base. The container jobs must build the image, verify its runtime version and native modules, and start the application with an empty database.
+
 Set `DEPENDENCY_AUTOMATION_PAUSED=true` to pause merging. Manual workflow dispatch defaults to audit; schedules and completed CI can apply eligible updates. Privileged merge workflows never check out or run PR code.
 
 For a signed agent-owned update, the administrator review also binds `author` to the PR login and the PR must use a `dependency-review/` branch. The gate preserves the exact tested signed commit through a guarded fast-forward. Source migrations remain separate commits with their own tests.
